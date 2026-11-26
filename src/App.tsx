@@ -12,7 +12,6 @@ import { AutoSaveStatus, PauseAndEndModal } from './components/PauseAndEndModal'
 import { ShopDrawer } from './components/ShopDrawer';
 import { TitleScreen } from './components/TitleScreen';
 import { CatStageCanvas, CatStageHandle } from './game/CatStageCanvas';
-import { TAMAGOTCHI_BALANCE_CONFIG } from './game/tamagotchiLifecycle';
 import {
   CatAccessoryId,
   CatBedId,
@@ -52,7 +51,7 @@ const INITIAL_HUD: CatHudSnapshot = {
   level: 1,
   coins: 35,
   day: 1,
-  timeOfDay: 0.333,
+  timeOfDay: 0.14,
   weather: 'cerah',
   lifeStage: 'baby',
   stageElapsedSec: 0,
@@ -60,9 +59,6 @@ const INITIAL_HUD: CatHudSnapshot = {
   careMistakes: 0,
   adultBranch: 'prima',
   miniGameUnlocked: false,
-  poopCount: 0,
-  gameClockText: '08:00',
-  totalGameMinutes: 0,
   bowlAmount: 0,
   freeFeedCooldownSec: 0,
   totalCatches: 0,
@@ -98,8 +94,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   sfxMuted: false,
   musicMuted: false,
   volume: 100,
-  hungerSpeed: 'normal',
-  timeScale: TAMAGOTCHI_BALANCE_CONFIG.defaultTimeScale,
+  hungerSpeed: 'santai',
 };
 
 function readSettings(): GameSettings {
@@ -116,19 +111,12 @@ function readSettings(): GameSettings {
       typeof parsed.volume === 'number' && Number.isFinite(parsed.volume)
         ? Math.max(0, Math.min(100, Math.round(parsed.volume)))
         : 100;
-    const timeScale =
-      typeof parsed.timeScale === 'number' &&
-      Number.isFinite(parsed.timeScale) &&
-      parsed.timeScale > 0
-        ? parsed.timeScale
-        : TAMAGOTCHI_BALANCE_CONFIG.defaultTimeScale;
     return {
       muted: sfxMuted && musicMuted,
       sfxMuted,
       musicMuted,
       volume,
-      hungerSpeed: parsed.hungerSpeed === 'santai' ? 'santai' : 'normal',
-      timeScale,
+      hungerSpeed: parsed.hungerSpeed === 'normal' ? 'normal' : 'santai',
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -472,7 +460,6 @@ export default function App() {
         toolMode={toolMode}
         previewBreed={selectedBreed}
         hungerSpeed={settings.hungerSpeed}
-        timeScale={settings.timeScale}
         onHudUpdate={setHud}
         onGameOver={handleGameOver}
         onToySessionEnd={() => setToolMode((prev) => (prev === 'TOY' ? 'PET' : prev))}

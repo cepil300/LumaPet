@@ -35,6 +35,7 @@ import {
   WeatherType,
 } from '../types/game';
 import {
+  calculateOfflineDecay,
   clearLowHungerNotificationSchedule,
   OFFLINE_HUNGER_DECAY_PER_SEC,
   resetLowHungerNotificationAfterFeed,
@@ -50,7 +51,6 @@ import {
   drawCatBed,
   drawFoodBowl,
   drawParticles,
-  drawPoopSpot,
   drawRoomBackdrop,
   drawToolCursorHint,
   drawYarnToy,
@@ -60,15 +60,6 @@ import {
   screenToRoom,
   ToyRenderState,
 } from './catRenderer';
-import {
-  computeGameClock,
-  getStatDecayPerGameSec,
-  PoopSpot,
-  rollPoopIntervalGameMin,
-  simulateOfflineLifecycle,
-  STAGE_LIFECYCLE_PARAMS,
-  TAMAGOTCHI_BALANCE_CONFIG,
-} from './tamagotchiLifecycle';
 import {
   createWeatherFxState,
   drawRoomWeatherBackdrop,
@@ -98,7 +89,6 @@ interface CatStageCanvasProps {
   toolMode: ToolMode;
   previewBreed: CatBreed;
   hungerSpeed: HungerSpeed;
-  timeScale: number;
   onHudUpdate: (snapshot: CatHudSnapshot) => void;
   onGameOver: (finalSnapshot: CatHudSnapshot) => void;
   onToySessionEnd?: () => void;
@@ -206,7 +196,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       toolMode,
       previewBreed,
       hungerSpeed,
-      timeScale,
       onHudUpdate,
       onGameOver,
       onToySessionEnd,
@@ -224,7 +213,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     const toolModeRef = useRef<ToolMode>(toolMode);
     const previewBreedRef = useRef<CatBreed>(previewBreed);
     const hungerSpeedRef = useRef<HungerSpeed>(hungerSpeed);
-    const timeScaleRef = useRef<number>(timeScale);
     const onToySessionEndRef = useRef(onToySessionEnd);
     const onBatheCompleteRef = useRef(onBatheComplete);
     const onAutoSaveNeededRef = useRef(onAutoSaveNeeded);
@@ -233,7 +221,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     toolModeRef.current = toolMode;
     previewBreedRef.current = previewBreed;
     hungerSpeedRef.current = hungerSpeed;
-    timeScaleRef.current = timeScale > 0 ? timeScale : TAMAGOTCHI_BALANCE_CONFIG.defaultTimeScale;
     onToySessionEndRef.current = onToySessionEnd;
     onBatheCompleteRef.current = onBatheComplete;
     onAutoSaveNeededRef.current = onAutoSaveNeeded;
@@ -294,12 +281,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       coins: 35,
       day: 1,
       timeOfDay: 0.15,
-      totalGameMinutes: 0,
-      poops: [] as PoopSpot[],
-      nextPoopId: 1,
-      poopTimerMin: rollPoopIntervalGameMin('baby'),
-      zeroHungerDurationMin: 0,
-      untreatedSickMin: 0,
       weather: 'cerah' as WeatherType,
       weatherTimer: 32,
       lightningTimer: 7.5,
@@ -498,17 +479,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
       let warningText: string | null = null;
       if (s.isSick && !isRecovering) {
-        if (s.poops.length >= TAMAGOTCHI_BALANCE_CONFIG.maxPoopsBeforeSick) {
-          warningText = `Kotoran menumpuk (${s.poops.length})! Bersihkan kotoran & beri obat.`;
-        } else if (s.sickReason === 'dirty_zero') {
+        if (s.sickReason === 'dirty_zero') {
           warningText = `Kebersihan 0%! ${s.name} jatuh sakit—mandikan dan beri obat.`;
         } else if (s.sickReason === 'chronic_dirty') {
           warningText = `${s.name} jatuh sakit karena terlalu sering kotor! Segera beri obat.`;
         } else {
           warningText = `${s.name} sedang sakit (lemas & berjalan lambat)! Segera beri obat.`;
         }
-      } else if (s.poops.length > 0) {
-        warningText = `Ada ${s.poops.length} kotoran di lantai! Klik kotoran untuk membersihkan.`;
       } else if (s.hunger < 20 && s.bowlAmount <= 0.02) {
         warningText = `${s.name} sangat lapar (<20%)! Kesehatannya mulai menurun—segera beri makan.`;
       } else if (s.hunger <= 30 && s.bowlAmount <= 0.02) {
@@ -524,8 +501,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               Math.ceil((FREE_FEED_COOLDOWN_MS - (Date.now() - s.lastFreeFeedTime)) / 1000)
             )
           : 0;
-
-      const clock = computeGameClock(s.totalGameMinutes);
 
       return {
         name: s.name,
@@ -543,7 +518,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         xpToNext: s.level * 40,
         level: s.level,
         coins: s.coins,
-        day: clock.day,
+        day: s.day,
         timeOfDay: s.timeOfDay,
         weather: s.weather,
         lifeStage: s.lifeStage,
@@ -568,9 +543,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         unlockedAccessories: [...s.unlockedAccessories],
         moodLabel,
         warningText,
-        poopCount: s.poops.length,
-        gameClockText: clock.clockText,
-        totalGameMinutes: s.totalGameMinutes,
       };
     };
 
@@ -765,12 +737,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
         s.recoveryTimer = 16;
         s.starveGraceTimer = 0;
-        s.zeroHungerDurationMin = 0;
-        s.untreatedSickMin = 0;
         s.lowCleanlinessStrikes = 0;
         s.dirtyStayTimer = 0;
         s.sickReason = null;
-        s.health = Math.min(100, s.health + 16);
+        s.health = Math.min(100, s.health + 12);
         s.happiness = clamp(s.happiness + 6, 0, 100);
         soundEngine.playChime();
         const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
@@ -1040,11 +1010,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           lastFreeFeedAt: s.lastFreeFeedTime > 0 ? s.lastFreeFeedTime : undefined,
           lowCleanlinessStrikes: s.lowCleanlinessStrikes,
           wasUnder25Clean: s.wasUnder25Clean,
-          totalGameMinutes: s.totalGameMinutes,
-          poops: s.poops.map((p) => ({ ...p })),
-          poopTimerMin: s.poopTimerMin,
-          zeroHungerDurationMin: s.zeroHungerDurationMin,
-          untreatedSickMin: s.untreatedSickMin,
           lastSavedTime: now,
           savedAt: now,
         };
@@ -1089,12 +1054,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.coins = 35;
         s.day = 1;
         s.timeOfDay = 0.14;
-        s.totalGameMinutes = 0;
-        s.poops = [];
-        s.nextPoopId = 1;
-        s.poopTimerMin = rollPoopIntervalGameMin('baby');
-        s.zeroHungerDurationMin = 0;
-        s.untreatedSickMin = 0;
         s.weather = 'cerah';
         s.weatherTimer = 32;
         s.lightningTimer = 7.5;
@@ -1144,103 +1103,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             ? save.personality
             : randomPersonality();
 
-        const validStages: LifeStage[] = ['baby', 'child', 'teen', 'adult', 'senior'];
-        const initialStage: LifeStage =
-          save.lifeStage && validStages.includes(save.lifeStage)
-            ? save.lifeStage
-            : save.day >= 12
-            ? 'senior'
-            : save.day >= 4
-            ? 'adult'
-            : 'baby';
-        const initialBranch: AdultEvolutionBranch =
-          save.adultBranch === 'prima' ||
-          save.adultBranch === 'mandiri' ||
-          save.adultBranch === 'sensitif'
-            ? save.adultBranch
-            : 'prima';
-        const savedPoops: PoopSpot[] = Array.isArray(save.poops)
-          ? save.poops
-              .filter(
-                (p) =>
-                  p &&
-                  typeof p.nx === 'number' &&
-                  typeof p.ny === 'number'
-              )
-              .map((p, idx) => ({
-                id: typeof p.id === 'number' ? p.id : idx + 1,
-                nx: clamp(p.nx, FLOOR_BOUNDS.minX + 0.04, FLOOR_BOUNDS.maxX - 0.04),
-                ny: clamp(p.ny, FLOOR_BOUNDS.minY + 0.02, FLOOR_BOUNDS.maxY - 0.02),
-              }))
-          : [];
-        const savedTotalGameMinutes =
-          typeof save.totalGameMinutes === 'number' && Number.isFinite(save.totalGameMinutes)
-            ? Math.max(0, save.totalGameMinutes)
-            : save.day > 1
-            ? 60 + (save.day - 1) * 1440
-            : 0;
-
-        const offline = simulateOfflineLifecycle({
-          hunger: save.hunger,
-          happiness: save.happiness,
-          cleanliness: save.cleanliness,
-          energy: save.energy,
-          health: save.health ?? 100,
-          isSick: Boolean(save.isSick),
-          lifeStage: initialStage,
-          stageElapsedSec:
-            typeof save.stageElapsedSec === 'number' && Number.isFinite(save.stageElapsedSec)
-              ? Math.max(0, save.stageElapsedSec)
-              : 0,
-          totalGameMinutes: savedTotalGameMinutes,
-          careMistakes:
-            typeof save.careMistakes === 'number' && Number.isFinite(save.careMistakes)
-              ? Math.max(0, save.careMistakes)
-              : 0,
-          adultBranch: initialBranch,
-          poopCount: savedPoops.length,
-          poopTimerMin:
-            typeof save.poopTimerMin === 'number' && Number.isFinite(save.poopTimerMin)
-              ? save.poopTimerMin
-              : rollPoopIntervalGameMin(initialStage),
-          zeroHungerDurationMin:
-            typeof save.zeroHungerDurationMin === 'number'
-              ? save.zeroHungerDurationMin
-              : 0,
-          untreatedSickMin:
-            typeof save.untreatedSickMin === 'number' ? save.untreatedSickMin : 0,
-          timeScale: timeScaleRef.current,
-          lastSavedTime: save.lastSavedTime ?? save.savedAt,
-        });
-
+        const offline = calculateOfflineDecay(
+          save.hunger,
+          save.health ?? 100,
+          save.lastSavedTime ?? save.savedAt
+        );
         s.hunger = offline.hunger;
-        s.happiness = offline.happiness;
-        s.cleanliness = offline.cleanliness;
-        s.energy = offline.energy;
+        s.happiness = save.happiness;
+        s.cleanliness = save.cleanliness;
+        s.energy = save.energy;
         s.health = offline.health;
-        s.lifeStage = offline.lifeStage;
-        s.stageElapsedSec = offline.stageElapsedSec;
-        s.totalGameMinutes = offline.totalGameMinutes;
-        s.day = offline.day;
-        s.careMistakes = offline.careMistakes;
-        s.careMistakeCooldown = 0;
-        s.adultBranch = offline.adultBranch;
-        s.poopTimerMin = offline.poopTimerMin;
-        s.zeroHungerDurationMin = offline.zeroHungerDurationMin;
-        s.untreatedSickMin = offline.untreatedSickMin;
-
-        s.poops = savedPoops;
-        let nextPoopId =
-          savedPoops.reduce((maxId, p) => Math.max(maxId, p.id), 0) + 1;
-        for (let i = 0; i < offline.newPoopsAdded; i++) {
-          s.poops.push({
-            id: nextPoopId++,
-            nx: clamp(0.24 + Math.random() * 0.54, FLOOR_BOUNDS.minX + 0.04, FLOOR_BOUNDS.maxX - 0.04),
-            ny: clamp(0.73 + Math.random() * 0.12, FLOOR_BOUNDS.minY + 0.02, FLOOR_BOUNDS.maxY - 0.02),
-          });
-        }
-        s.nextPoopId = nextPoopId;
-
         s.lowCleanlinessStrikes =
           typeof save.lowCleanlinessStrikes === 'number' &&
           Number.isFinite(save.lowCleanlinessStrikes)
@@ -1258,14 +1130,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.health = Math.min(s.health, 44);
           s.sickReason = 'dirty_zero';
         } else {
-          s.sickReason = offline.isSick || s.health < 50 ? 'health' : null;
+          s.sickReason = s.health < 50 ? 'health' : null;
         }
-        s.isSick = offline.isSick || s.health < 50;
+        s.isSick = s.health < 50 || Boolean(save.isSick && s.health < 50);
         s.recoveryTimer = 0;
         s.starveGraceTimer = 0;
         s.affectionXp = save.affectionXp;
         s.level = save.level;
         s.coins = save.coins;
+        s.day = save.day;
         s.timeOfDay = save.timeOfDay;
         const loadedWeather: WeatherType =
           save.weather === 'hujan' || save.weather === 'malam' || save.weather === 'cerah'
@@ -1280,6 +1153,30 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.weatherFx.prevWeather = loadedWeather;
         s.weatherFx.weatherFade = 1;
         s.weatherFx.lightningFlash = 0;
+        const validStages: LifeStage[] = ['baby', 'child', 'teen', 'adult', 'senior'];
+        s.lifeStage =
+          save.lifeStage && validStages.includes(save.lifeStage)
+            ? save.lifeStage
+            : save.day >= 10
+            ? 'senior'
+            : save.day >= 3
+            ? 'adult'
+            : 'baby';
+        s.stageElapsedSec =
+          typeof save.stageElapsedSec === 'number' && Number.isFinite(save.stageElapsedSec)
+            ? Math.max(0, save.stageElapsedSec)
+            : 0;
+        s.careMistakes =
+          typeof save.careMistakes === 'number' && Number.isFinite(save.careMistakes)
+            ? Math.max(0, save.careMistakes)
+            : 0;
+        s.careMistakeCooldown = 0;
+        s.adultBranch =
+          save.adultBranch === 'prima' ||
+          save.adultBranch === 'mandiri' ||
+          save.adultBranch === 'sensitif'
+            ? save.adultBranch
+            : 'prima';
         s.totalCatches = save.totalCatches;
         s.totalPets = save.totalPets;
         s.activeBackground = save.activeBackground ?? 'classic_home';
@@ -1351,20 +1248,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           scheduleLowHungerNotification(s.hunger, OFFLINE_HUNGER_DECAY_PER_SEC);
         }
 
-        if (offline.elapsedRealSeconds >= 30 && (offline.hungerLost >= 1 || offline.evolvedStages.length > 0)) {
+        if (offline.elapsedSeconds >= 60 && offline.hungerLost >= 1) {
           const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
-          const evoNote =
-            offline.evolvedStages.length > 0
-              ? ` · Evolusi ${LIFE_STAGES[s.lifeStage].shortLabel}!`
-              : '';
           const healthNote =
             offline.healthLost >= 1 ? ` · Sehat -${Math.round(offline.healthLost)}%` : '';
           spawnParticle('text', catPos.x, catPos.y - 36, {
-            label: `Lama pergi · Kenyang -${Math.round(offline.hungerLost)}%${healthNote}${evoNote}`,
-            color: offline.hunger < 20 ? '#FCA5A5' : '#FDE68A',
+            label: `Lama pergi · Kenyang -${Math.round(offline.hungerLost)}%${healthNote}`,
+            color: offline.dippedBelow20 ? '#FCA5A5' : '#FDE68A',
             size: 13,
             vy: -24,
-            maxLife: 2.3,
+            maxLife: 2.2,
           });
         }
 
@@ -1493,27 +1386,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 }
               }
 
-              // Skala Waktu (TimeScale): default 73x (60 menit nyata = 73 jam waktu game / 3 hari)
-              const activeTimeScale = timeScaleRef.current;
-              const dtGameSec = dt * activeTimeScale;
-              const dtGameMin = dtGameSec / 60;
-              s.totalGameMinutes += dtGameMin;
-              const clock = computeGameClock(s.totalGameMinutes);
-              if (clock.day > s.day) {
-                s.day = clock.day;
-                s.coins += 10;
-                soundEngine.playChime();
-                const pos = roomToScreen(s.nx, s.ny - 0.1, rt);
-                spawnParticle('text', pos.x, pos.y - 30, {
-                  label: `Hari ke-${s.day}! +10 Koin`,
-                  color: '#A7F3D0',
-                  size: 16,
-                  vy: -32,
-                  maxLife: 1.8,
-                });
-              }
-
-              // Cuaca dinamis tetap berganti secara berkala untuk suasana
               s.weatherTimer -= dt;
               if (s.weatherTimer <= 0) {
                 const prevW = s.weather;
@@ -1524,6 +1396,17 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   nextWeather = Math.random() < 0.55 ? 'malam' : 'cerah';
                 } else {
                   nextWeather = 'cerah';
+                  s.day += 1;
+                  s.coins += 10;
+                  soundEngine.playChime();
+                  const pos = roomToScreen(s.nx, s.ny - 0.1, rt);
+                  spawnParticle('text', pos.x, pos.y - 30, {
+                    label: `Hari ke-${s.day}! +10 Koin`,
+                    color: '#A7F3D0',
+                    size: 16,
+                    vy: -32,
+                    maxLife: 1.8,
+                  });
                 }
 
                 s.weatherFx.prevWeather = prevW;
@@ -1555,7 +1438,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
 
               // Tahap Pertumbuhan (Life Stages) & Care Mistakes
-              s.stageElapsedSec += dtGameSec;
+              s.stageElapsedSec += dt;
               s.careMistakeCooldown = Math.max(0, s.careMistakeCooldown - dt);
 
               if (
@@ -1564,35 +1447,29 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 (s.hunger < 15 || s.cleanliness < 15 || s.happiness < 15 || s.isSick)
               ) {
                 s.careMistakes += 1;
-                s.careMistakeCooldown = 30;
+                s.careMistakeCooldown = 40;
               }
 
-              if (
-                s.lifeStage === 'baby' &&
-                s.stageElapsedSec >= STAGE_LIFECYCLE_PARAMS.baby.durationGameMin * 60
-              ) {
+              if (s.lifeStage === 'baby' && s.stageElapsedSec >= LIFE_STAGES.baby.durationSec) {
                 s.lifeStage = 'child';
                 s.stageElapsedSec = 0;
-                s.poopTimerMin = Math.min(s.poopTimerMin, rollPoopIntervalGameMin('child'));
                 celebrateStageEvolution('child', 'Mini-Game Terbuka');
               } else if (
                 s.lifeStage === 'child' &&
-                s.stageElapsedSec >= STAGE_LIFECYCLE_PARAMS.child.durationGameMin * 60
+                s.stageElapsedSec >= LIFE_STAGES.child.durationSec
               ) {
                 s.lifeStage = 'teen';
                 s.stageElapsedSec = 0;
-                s.poopTimerMin = Math.min(s.poopTimerMin, rollPoopIntervalGameMin('teen'));
                 celebrateStageEvolution('teen');
               } else if (
                 s.lifeStage === 'teen' &&
-                s.stageElapsedSec >= STAGE_LIFECYCLE_PARAMS.teen.durationGameMin * 60
+                s.stageElapsedSec >= LIFE_STAGES.teen.durationSec
               ) {
                 const branch: AdultEvolutionBranch =
                   s.careMistakes <= 2 ? 'prima' : s.careMistakes <= 5 ? 'mandiri' : 'sensitif';
                 s.adultBranch = branch;
                 s.lifeStage = 'adult';
                 s.stageElapsedSec = 0;
-                s.poopTimerMin = Math.min(s.poopTimerMin, rollPoopIntervalGameMin('adult'));
                 const branchTitle =
                   branch === 'prima'
                     ? 'Dewasa Prima'
@@ -1600,102 +1477,43 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     ? 'Dewasa Mandiri'
                     : 'Dewasa Sensitif';
                 celebrateStageEvolution('adult', branchTitle);
-              } else if (
-                s.lifeStage === 'adult' &&
-                s.day >= TAMAGOTCHI_BALANCE_CONFIG.seniorStartDay
-              ) {
+              } else if (s.lifeStage === 'adult' && s.day >= 10) {
                 s.lifeStage = 'senior';
                 s.stageElapsedSec = 0;
-                s.poopTimerMin = Math.min(s.poopTimerMin, rollPoopIntervalGameMin('senior'));
                 celebrateStageEvolution('senior');
-              } else if (
-                s.lifeStage === 'senior' &&
-                s.day >= TAMAGOTCHI_BALANCE_CONFIG.seniorMaxNaturalDay
-              ) {
-                s.health = 0;
               }
 
-              // Buang Air (Poop) sesuai interval fase
-              s.poopTimerMin -= dtGameMin;
-              if (s.poopTimerMin <= 0) {
-                s.poopTimerMin = rollPoopIntervalGameMin(s.lifeStage);
-                if (s.poops.length < 6) {
-                  const poopNx = clamp(
-                    s.nx + (Math.random() - 0.5) * 0.14,
-                    FLOOR_BOUNDS.minX + 0.04,
-                    FLOOR_BOUNDS.maxX - 0.04
-                  );
-                  const poopNy = clamp(
-                    s.ny + 0.02 + (Math.random() - 0.5) * 0.05,
-                    FLOOR_BOUNDS.minY + 0.02,
-                    FLOOR_BOUNDS.maxY - 0.02
-                  );
-                  s.poops.push({ id: s.nextPoopId++, nx: poopNx, ny: poopNy });
-                  s.cleanliness = clamp(s.cleanliness - 6, 0, 100);
-                  soundEngine.playBounce();
-                  const pPos = roomToScreen(poopNx, poopNy - 0.02, rt);
-                  spawnParticle('dust_puff', pPos.x, pPos.y, {
-                    color: 'rgba(148, 128, 98, 0.72)',
-                    size: 9,
-                    vy: -18,
-                    maxLife: 0.9,
-                  });
-                }
-              }
+              const stageDecayMult =
+                s.lifeStage === 'baby'
+                  ? 1.45
+                  : s.lifeStage === 'child'
+                  ? 1.1
+                  : s.lifeStage === 'teen'
+                  ? 1.05
+                  : s.lifeStage === 'senior'
+                  ? 1.38
+                  : s.adultBranch === 'prima'
+                  ? 0.85
+                  : 1.0;
 
-              // Kotoran menumpuk >= 3 memicu sakit
-              if (
-                s.poops.length >= TAMAGOTCHI_BALANCE_CONFIG.maxPoopsBeforeSick &&
-                !s.isSick &&
-                s.recoveryTimer <= 0
-              ) {
-                s.health = Math.min(s.health, 44);
-                s.isSick = true;
-                s.sickReason = 'chronic_dirty';
-                soundEngine.playMeow(0.76);
-                const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
-                spawnParticle('text', catPos.x, catPos.y - 36, {
-                  label: 'Kotoran menumpuk! Kucing jatuh sakit',
-                  color: '#FCA5A5',
-                  size: 14,
-                  vy: -26,
-                  maxLife: 1.7,
-                });
-              }
-
-              // Penurunan Statistik Mode 1x / 24 Jam Nonstop (dikonversi sesuai TimeScale)
-              const stageParams = STAGE_LIFECYCLE_PARAMS[s.lifeStage];
-              const { hungerPerGameSec, happinessPerGameSec } = getStatDecayPerGameSec(
-                s.lifeStage,
-                s.adultBranch
-              );
-              const hungerSpeedMult = hungerSpeedRef.current === 'santai' ? 0.85 : 1.0;
+              const baseHungerDecay =
+                (hungerSpeedRef.current === 'santai' ? 0.16 : 0.28) * stageDecayMult;
               const pMod = PERSONALITY_MODS[s.personality];
               // Efek Stres: jika bahagia < 20, penurunan kenyang & energi 1.5x lebih cepat
               const stressMult = s.happiness < 20 ? 1.5 : 1.0;
 
               if (s.behavior === 'SLEEPING') {
-                // Saat tidur manual, energi pulih cepat (+2.5/detik nyata) hingga 100
+                // Saat tidur, energi pulih cepat (+2.5/detik) hingga 100
                 s.energy = clamp(s.energy + dt * 2.5, 0, 100);
-                s.hunger = clamp(
-                  s.hunger - dtGameSec * hungerPerGameSec * hungerSpeedMult * stressMult,
-                  0,
-                  100
-                );
+                s.hunger = clamp(s.hunger - dt * baseHungerDecay * 0.5 * stressMult, 0, 100);
                 const sleepHappyPenalty =
-                  (s.hunger < 25 ? 0.25 : 0) + (s.cleanliness < 25 ? 0.2 : 0);
+                  (s.hunger < 25 ? 0.4 : 0) + (s.cleanliness < 25 ? 0.3 : 0);
                 s.happiness = clamp(
-                  s.happiness -
-                    dtGameSec * happinessPerGameSec -
-                    dt * sleepHappyPenalty,
+                  s.happiness - dt * (0.12 * stageDecayMult + sleepHappyPenalty),
                   0,
                   100
                 );
-                s.cleanliness = clamp(
-                  s.cleanliness - dtGameMin * stageParams.cleanlinessDrainPerGameMin * 0.5,
-                  0,
-                  100
-                );
+                s.cleanliness = clamp(s.cleanliness - dt * 0.12 * stageDecayMult, 0, 100);
 
                 s.zzzTimer -= dt;
                 if (s.zzzTimer <= 0) {
@@ -1739,33 +1557,19 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 const toyOpt = getToyOption(s.activeToy);
                 const playEnergyMult = isBallPlay ? toyOpt.energyDrainMult : 1.0;
                 const playHungerMult = isBallPlay ? toyOpt.hungerDrainMult : 1.0;
-                const hungryEnergyMult = s.hunger <= 10 ? 1.8 : s.hunger <= 30 ? 1.35 : 1.0;
-                const poopCleanPenalty = s.poops.length * 0.06;
+                const hungryEnergyMult = s.hunger <= 10 ? 2.8 : s.hunger <= 30 ? 2.1 : 1.0;
+                const baseEnergyDrain = 0.45 * pMod.energyDrain * stageDecayMult;
+                const sensitiveHappyMult =
+                  s.lifeStage === 'adult' && s.adultBranch === 'sensitif' ? 1.15 : 1.0;
 
                 s.hunger = clamp(
-                  s.hunger -
-                    dtGameSec *
-                      hungerPerGameSec *
-                      hungerSpeedMult *
-                      playHungerMult *
-                      stressMult,
+                  s.hunger - dt * baseHungerDecay * playHungerMult * stressMult,
                   0,
                   100
                 );
-                s.cleanliness = clamp(
-                  s.cleanliness -
-                    dtGameMin * (stageParams.cleanlinessDrainPerGameMin + poopCleanPenalty),
-                  0,
-                  100
-                );
+                s.cleanliness = clamp(s.cleanliness - dt * 0.28 * stageDecayMult, 0, 100);
                 s.energy = clamp(
-                  s.energy -
-                    dtGameMin *
-                      stageParams.energyDrainPerGameMin *
-                      pMod.energyDrain *
-                      playEnergyMult *
-                      hungryEnergyMult *
-                      stressMult,
+                  s.energy - dt * baseEnergyDrain * playEnergyMult * hungryEnergyMult * stressMult,
                   0,
                   100
                 );
@@ -1779,11 +1583,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   );
                 } else {
                   const happyPenalty =
-                    (s.hunger < 25 ? 0.3 : 0) +
-                    (s.cleanliness < 25 ? 0.25 : 0) +
-                    (s.energy < 20 ? 0.25 : 0);
+                    (s.hunger < 25 ? 0.4 : 0) +
+                    (s.cleanliness < 25 ? 0.3 : 0) +
+                    (s.energy < 20 ? 0.3 : 0);
                   s.happiness = clamp(
-                    s.happiness - dtGameSec * happinessPerGameSec - dt * happyPenalty,
+                    s.happiness - dt * (0.4 * stageDecayMult * sensitiveHappyMult + happyPenalty),
                     0,
                     100
                   );
@@ -1848,26 +1652,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 }
               }
 
-              // Pelacakan lapar 0% dan sakit tak terobati sesuai parameter waktu game
-              if (s.hunger <= 0) {
-                s.zeroHungerDurationMin += dtGameMin;
-                if (
-                  s.zeroHungerDurationMin >= TAMAGOTCHI_BALANCE_CONFIG.zeroHungerSickThresholdMin &&
-                  !s.isSick &&
-                  s.recoveryTimer <= 0
-                ) {
-                  s.health = Math.min(s.health, 44);
-                  s.isSick = true;
-                  s.sickReason = 'health';
-                }
-              } else {
-                s.zeroHungerDurationMin = 0;
-              }
-
               // Dampak ke Kesehatan & Pemulihan Obat
               if (s.recoveryTimer > 0) {
                 s.recoveryTimer = Math.max(0, s.recoveryTimer - dt);
-                s.untreatedSickMin = 0;
                 const healRate = s.hunger > 20 ? 5.2 : 3.2;
                 s.health = clamp(s.health + dt * healRate, 0, 100);
                 s.happiness = clamp(s.happiness + dt * 0.9, 0, 100);
@@ -1895,14 +1682,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   );
                 }
               } else {
-                if (s.isSick) {
-                  s.untreatedSickMin += dtGameMin;
-                  if (s.untreatedSickMin >= TAMAGOTCHI_BALANCE_CONFIG.untreatedSickFatalMin) {
-                    s.health = 0;
-                  }
-                } else {
-                  s.untreatedSickMin = 0;
-                }
                 const healthDrain =
                   (s.hunger < 20 ? 0.35 : 0) + (s.cleanliness < 15 ? 0.2 : 0);
                 if (healthDrain > 0) {
@@ -2605,12 +2384,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         if (toyState.active) {
           roomObjects.push({ y: toyState.ny, draw: () => drawYarnToy(ctx, toyState, rt) });
         }
-        s.poops.forEach((poop) => {
-          roomObjects.push({
-            y: poop.ny,
-            draw: () => drawPoopSpot(ctx, poop.nx, poop.ny, rt, s.time),
-          });
-        });
         roomObjects.sort((a, b) => a.y - b.y);
         roomObjects.forEach((d) => d.draw());
 
@@ -2716,44 +2489,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const roomPt = screenToRoom(px, py, rt);
         tossToyInternal(roomPt.nx, roomPt.ny);
         return;
-      }
-
-      // Klik atau sapu di atas kotoran untuk membersihkannya
-      if (s.poops.length > 0 && (isClick || (mode === 'BRUSH' && moveDist >= 1.5))) {
-        const poopHitRadius = 36 * Math.max(0.7, rt.scale);
-        const hitIdx = s.poops.findIndex((p) => {
-          const pScr = roomToScreen(p.nx, p.ny, rt);
-          return Math.hypot(px - pScr.x, py - pScr.y) <= poopHitRadius;
-        });
-        if (hitIdx !== -1) {
-          const removed = s.poops[hitIdx];
-          s.poops.splice(hitIdx, 1);
-          const pScr = roomToScreen(removed.nx, removed.ny, rt);
-          soundEngine.unlock();
-          soundEngine.playChime();
-          s.cleanliness = clamp(s.cleanliness + 5, 0, 100);
-          s.happiness = clamp(s.happiness + 3, 0, 100);
-          addXpAndCoins(4, 1, pScr.x, pScr.y - 18);
-          for (let i = 0; i < 5; i++) {
-            spawnParticle('sparkle', pScr.x + (Math.random() - 0.5) * 26, pScr.y - 6, {
-              color: '#A7F3D0',
-              size: 7 + Math.random() * 4,
-              vx: (Math.random() - 0.5) * 60,
-              vy: -28 - Math.random() * 25,
-              maxLife: 0.75,
-            });
-          }
-          spawnParticle('text', pScr.x, pScr.y - 26, {
-            label: 'Kotoran Bersih!',
-            color: '#A7F3D0',
-            size: 13,
-            vy: -26,
-            maxLife: 1.0,
-          });
-          onHudUpdate(buildSnapshot());
-          onAutoSaveNeededRef.current?.();
-          return;
-        }
       }
 
       if (distToCat <= hitRadius) {

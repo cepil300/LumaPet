@@ -298,7 +298,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     />
                   )}
                   <span>
-                    Hari {hud.day} · {hud.gameClockText}
+                    Hari {hud.day}
                     <span className="text-[#7A4928]/80 font-bold">
                       {' · '}
                       {hud.weather === 'hujan'
@@ -335,15 +335,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                     />
                   </span>
                 </span>
-
-                {hud.poopCount > 0 && (
-                  <span
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#FEF3C7] border border-[#B45309]/40 text-[#92400E] text-[11px] short:text-[10px] font-extrabold"
-                    title="Ketuk kotoran di lantai atau gunakan sikat untuk membersihkan"
-                  >
-                    <span>💩 {hud.poopCount}</span>
-                  </span>
-                )}
               </div>
             </div>
           </div>

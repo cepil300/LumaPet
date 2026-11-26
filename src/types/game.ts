@@ -42,16 +42,16 @@ export const LIFE_STAGES: Record<LifeStage, LifeStageMeta> = {
     id: 'baby',
     label: 'Bayi',
     shortLabel: 'Bayi',
-    durationSec: 60 * 60, // 60 menit (1 jam) waktu game
+    durationSec: 5 * 60, // 5 menit waktu game
     description: 'Baru lahir, sangat menggemaskan namun butuh perhatian ekstra.',
-    decayNote: 'Lapar & bahagia turun cepat · Mini-game belum terbuka',
+    decayNote: 'Statistik cepat turun · Mini-game belum terbuka',
     imgSrc: '/src/assets/images/cat_stage_baby_1795704818280.jpg',
   },
   child: {
     id: 'child',
     label: 'Anak',
     shortLabel: 'Anak',
-    durationSec: 24 * 60 * 60, // 24 jam (Hari ke-1) waktu game
+    durationSec: 15 * 60, // 15 menit waktu game
     description: 'Aktif dan penuh rasa ingin tahu! Mini-game sudah bisa dimainkan.',
     decayNote: 'Mini-game terbuka · Perawatan mulai dinilai',
     imgSrc: '/src/assets/images/cat_stage_child_1795704819143.jpg',
@@ -60,7 +60,7 @@ export const LIFE_STAGES: Record<LifeStage, LifeStageMeta> = {
     id: 'teen',
     label: 'Remaja',
     shortLabel: 'Remaja',
-    durationSec: 48 * 60 * 60, // 48 jam (Hari ke-2 s/d ke-3) waktu game
+    durationSec: 20 * 60, // 20 menit waktu game
     description: 'Fase penentuan evolusi dewasa berdasarkan riwayat perawatanmu.',
     decayNote: 'Penentuan percabangan evolusi Dewasa',
     imgSrc: '/src/assets/images/cat_stage_teen_1795704819351.jpg',
@@ -69,7 +69,7 @@ export const LIFE_STAGES: Record<LifeStage, LifeStageMeta> = {
     id: 'adult',
     label: 'Dewasa',
     shortLabel: 'Dewasa',
-    durationSec: 8 * 24 * 60 * 60, // 8 hari (Hari ke-4 s/d ke-11) waktu game
+    durationSec: 0, // Evolusi ke Senior setelah Hari ke-10
     description: 'Bentuk dewasa penuh sesuai hasil perawatan fase Anak & Remaja.',
     decayNote: 'Bentuk dewasa penuh · Menuju fase Tua',
   },
@@ -78,8 +78,8 @@ export const LIFE_STAGES: Record<LifeStage, LifeStageMeta> = {
     label: 'Tua (Senior)',
     shortLabel: 'Tua',
     durationSec: 0,
-    description: 'Kucing senior yang bijak dan manja pada usia tua.',
-    decayNote: 'Penurunan statistik drastis · Butuh kasih sayang',
+    description: 'Kucing senior yang bijak dan manja setelah menemanimu 10+ hari.',
+    decayNote: 'Penurunan statistik lebih cepat · Butuh kasih sayang',
     imgSrc: '/src/assets/images/cat_stage_senior_1795704819383.jpg',
   },
 };
@@ -150,7 +150,6 @@ export interface GameSettings {
   musicMuted: boolean;
   volume: number;
   hungerSpeed: HungerSpeed;
-  timeScale: number;
 }
 
 export interface BreedProfile {
@@ -513,9 +512,6 @@ export interface CatHudSnapshot {
   unlockedAccessories: CatAccessoryId[];
   moodLabel: string;
   warningText: string | null;
-  poopCount: number;
-  gameClockText: string;
-  totalGameMinutes: number;
 }
 
 export interface SaveData {
@@ -555,11 +551,6 @@ export interface SaveData {
   lastFreeFeedAt?: number;
   lowCleanlinessStrikes?: number;
   wasUnder25Clean?: boolean;
-  totalGameMinutes?: number;
-  poops?: Array<{ id: number; nx: number; ny: number }>;
-  poopTimerMin?: number;
-  zeroHungerDurationMin?: number;
-  untreatedSickMin?: number;
   lastSavedTime?: number;
   savedAt: number;
 }
