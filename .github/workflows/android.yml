@@ -40,7 +40,14 @@ jobs:
             npm init -y
           fi
           npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
-          npx cap init "MeongMeong" "com.cepil300.meongmeong" --web-dir=dist || true
+          rm -f capacitor.config.ts capacitor.config.json
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.cepil300.meongmeong",
+            "appName": "MeongMeong",
+            "webDir": "dist"
+          }
+          EOF
           npx cap add android
           npx cap sync android
 
