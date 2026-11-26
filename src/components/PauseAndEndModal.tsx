@@ -213,7 +213,38 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                               : 'bg-[#FAF8F2] border-[#8C582E]/25 text-[#7A4928]'
                           }`}
                         >
-                          {mode === 'santai' ? 'Santai (Sangat Lama)' : 'Normal (Lama)'}
+                          {mode === 'santai' ? 'Santai (Lebih Lambat)' : 'Standar (Sesuai Skala)'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#8C582E]/35">
+                    <div className="flex items-center justify-between gap-2 mb-2 short:mb-1.5">
+                      <p className="text-sm short:text-xs font-bold text-[#5A2D12]">
+                        Skala Waktu (TimeScale)
+                      </p>
+                      <span className="text-[11px] font-extrabold text-[#2D6A4F] tabular-nums">
+                        {settings.timeScale}x
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { value: 73, label: '60m = 73 Jam' },
+                        { value: 1, label: '1:1 Real-Time' },
+                        { value: 60, label: '1m = 1 Jam' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => onUpdateSettings({ timeScale: opt.value })}
+                          className={`px-2 py-2 short:py-1.5 min-h-[36px] rounded-lg text-[11px] font-bold border-2 transition-colors cursor-pointer ${
+                            settings.timeScale === opt.value
+                              ? 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722]'
+                              : 'bg-[#FAF8F2] border-[#8C582E]/25 text-[#7A4928]'
+                          }`}
+                        >
+                          {opt.label}
                         </button>
                       ))}
                     </div>
@@ -266,7 +297,9 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                 <>
                   {isGameOver && (
                     <p className="text-center text-sm short:text-xs font-semibold text-[#6B4A35] mb-3 short:mb-2">
-                      Arwah {hud.name} terbang tenang ke negeri awan karena sakitnya tidak sempat diobati.
+                      {hud.lifeStage === 'senior' && hud.day >= 18 && !hud.isSick
+                        ? `${hud.name} berpulang dengan tenang di usia tua (Hari ke-${hud.day}) setelah melewati masa hidup yang penuh kasih.`
+                        : `Arwah ${hud.name} terbang tenang ke negeri awan karena sakitnya tidak sempat diobati.`}
                     </p>
                   )}
 
