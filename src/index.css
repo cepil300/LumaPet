@@ -1,0 +1,135 @@
+@import "tailwindcss";
+@custom-variant short (@media (max-height: 540px));
+
+@layer base {
+  :root {
+    --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    font-family: var(--font-body);
+    background-color: #1f2b26;
+    color: #1c2722;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.safe-inset-hud {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes floatGhost {
+  0%, 100% {
+    transform: translateY(0px) rotate(-1.5deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(1.5deg);
+  }
+}
+
+.animate-float-ghost {
+  animation: floatGhost 2.6s ease-in-out infinite;
+}
+
+.title-text-outline {
+  text-shadow:
+    -3px -3px 0 #4e270f,
+    0 -3px 0 #4e270f,
+    3px -3px 0 #4e270f,
+    -3px 0 0 #4e270f,
+    3px 0 0 #4e270f,
+    -3px 3px 0 #4e270f,
+    0 3px 0 #4e270f,
+    3px 3px 0 #4e270f,
+    0 5px 0 #351807;
+}
+
+.menu-text-outline {
+  text-shadow:
+    -1.5px -1.5px 0 #4e270f,
+    1.5px -1.5px 0 #4e270f,
+    -1.5px 1.5px 0 #4e270f,
+    1.5px 1.5px 0 #4e270f,
+    0 2px 0 #4e270f;
+}
+
+@media (max-height: 540px) {
+  .title-text-outline {
+    text-shadow:
+      -2px -2px 0 #4e270f,
+      0 -2px 0 #4e270f,
+      2px -2px 0 #4e270f,
+      -2px 0 0 #4e270f,
+      2px 0 0 #4e270f,
+      -2px 2px 0 #4e270f,
+      0 2px 0 #4e270f,
+      2px 2px 0 #4e270f,
+      0 3px 0 #351807;
+  }
+}
+
+.wood-menu-panel {
+  background-color: #f7e4c6;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(166, 108, 56, 0.06) 0px,
+      rgba(166, 108, 56, 0.06) 2px,
+      transparent 2px,
+      transparent 28px
+    );
+}
+
+.wood-modal-frame {
+  background-color: #b77442;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(94, 47, 18, 0.14) 0px,
+      rgba(94, 47, 18, 0.14) 2px,
+      transparent 2px,
+      transparent 44px
+    ),
+    linear-gradient(180deg, #c98650 0%, #a56232 100%);
+}
+
+.parchment-banner {
+  background: linear-gradient(180deg, #f9e8c3 0%, #eed29a 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 253, 245, 0.75),
+    inset 0 -3px 0 rgba(164, 110, 56, 0.25),
+    0 3px 0 rgba(94, 47, 18, 0.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

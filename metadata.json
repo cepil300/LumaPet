@@ -1,0 +1,6 @@
+{
+  "name": "Rumah Kucing",
+  "description": "Game simulasi pelihara kucing virtual yang hangat, interaktif, dan penuh kasih.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
