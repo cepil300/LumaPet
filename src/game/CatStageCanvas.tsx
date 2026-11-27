@@ -62,12 +62,16 @@ import {
   getDrowsyStage,
   getStageDecayRatesPerSec,
   getWeatherMultipliers,
+  HEALTH_RECOVERY_PER_REAL_SEC,
   INITIAL_GAME_HOUR,
   isDuskHour,
   resetLowHungerNotificationAfterFeed,
   scheduleLowHungerNotification,
   sendLowHungerNotification,
   setLowHungerNotifiedFlag,
+  SICK_START_HEALTH,
+  SICK_SYMPTOM_CLEAR_HEALTH,
+  UNTREATED_SICK_DRAIN_PER_REAL_SEC,
 } from '../utils/catCareSystem';
 import {
   BowlRenderState,
@@ -139,7 +143,7 @@ const BOWL_POS = { nx: 0.43, ny: 0.748 };
 const FLOOR_BOUNDS = { minX: 0.15, maxX: 0.84, minY: 0.68, maxY: 0.89 };
 const BED_BOUNDS = { minX: 0.11, maxX: 0.87, minY: 0.67, maxY: 0.90 };
 const PARTICLE_POOL_SIZE = 96;
-const PLAY_SESSION_SECONDS = 5.5;
+const PLAY_SESSION_SECONDS = 10;
 const FREE_COIN_REWARD_COOLDOWN_MS = 90 * 1000;
 const BRUSH_STROKE_PX = 48;
 const BRUSH_POINTS_PER_STROKE = 10;
@@ -254,6 +258,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     const bedImgsRef = useRef<Partial<Record<CatBedId, HTMLImageElement>>>({});
     const spriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const babySpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
+    const childSpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const gameStateRef = useRef<GameState>(gameState);
     const toolModeRef = useRef<ToolMode>(toolMode);
     const previewBreedRef = useRef<CatBreed>(previewBreed);
@@ -323,7 +328,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       dirtyStayTimer: 0,
       cleanHealthyTimer: 0,
       chronicSickCheckTimer: 4.0,
-      recoveryTimer: 0,
+      isRecovering: false,
       starveGraceTimer: 0,
       starveZeroTimer: 0,
       zeroEnergyElapsedSec: 0,
@@ -588,7 +593,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const s = simRef.current;
       const now = Date.now();
       const isHungry = s.hunger < 40;
-      const isRecovering = s.recoveryTimer > 0;
+      const isRecovering = s.isRecovering;
       const { gameHours } = computeCalendarDayAndHour(s.lifeStage, s.stageElapsedSec);
       const dayPhase = getDayPhaseFromHour(s.gameHour);
       const isDusk = isDuskHour(s.gameHour);
@@ -605,7 +610,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       };
 
       let moodLabel = 'Tenang & Nyaman';
-      if (isRecovering) moodLabel = 'Pulih Perlahan';
+      if (isRecovering && s.isSick) moodLabel = 'Pemulihan (Masih Sakit)';
+      else if (isRecovering) moodLabel = 'Hampir Pulih Total';
       else if (s.isSick) moodLabel = 'Sedang Sakit';
       else if (s.behavior === 'SLEEPING') {
         moodLabel =
@@ -631,15 +637,21 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       } else if (s.happiness > 82) moodLabel = 'Sangat Ceria';
 
       let warningText: string | null = null;
-      if (s.isSick && !isRecovering) {
+      if (s.isSick && isRecovering) {
+        warningText = `${s.name} sedang masa pemulihan (${Math.round(
+          s.health
+        )}%) — efek sakit masih terasa hingga kesehatan mencapai 90%.`;
+      } else if (s.isSick && !isRecovering) {
         if (s.sickReason === 'overwork') {
-          warningText = `Kelelahan / Overwork! ${s.name} jatuh sakit karena Energi 0 terlalu lama—segera beri obat.`;
+          warningText = `Kelelahan / Overwork! ${s.name} jatuh sakit karena Energi 0 terlalu lama—segera beri obat sebelum kesehatan habis.`;
         } else if (s.sickReason === 'dirty_zero') {
-          warningText = `Kebersihan 0%! ${s.name} jatuh sakit—mandikan dan beri obat.`;
+          warningText = `Kebersihan 0%! ${s.name} jatuh sakit—mandikan dan beri obat sebelum kesehatan habis.`;
         } else if (s.sickReason === 'chronic_dirty') {
-          warningText = `${s.name} jatuh sakit karena terlalu sering kotor! Segera beri obat.`;
+          warningText = `${s.name} jatuh sakit karena terlalu sering kotor! Segera beri obat sebelum kesehatan habis.`;
         } else {
-          warningText = `${s.name} sedang sakit (lemas & berjalan lambat)! Segera beri obat.`;
+          warningText = `${s.name} sedang sakit (${Math.round(
+            s.health
+          )}% Kesehatan)! Segera beri obat sebelum mencapai 0%.`;
         }
       } else if (s.behavior === 'SLEEPING' && s.sleepMode === 'auto_sleep') {
         warningText = `Kelelahan total! ${s.name} masuk [AUTO-SLEEP] (${formatCooldownMMSS(
@@ -1259,8 +1271,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         errMsg = 'Bermain dikunci saat kucing sedang tidur!';
       } else if (s.isSick) {
         errMsg = 'Sedang sakit — sembuhkan dulu sebelum Mini-Game!';
-      } else if (Math.round(s.happiness) >= 100) {
-        errMsg = 'Bahagia sudah 100! Mini-Game ditolak';
       } else if (s.energy < 20) {
         errMsg = 'Energi < 20! Terlalu lemas untuk Mini-Game';
       } else if (s.hunger <= 2) {
@@ -1313,8 +1323,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         let blockReason: string | null = null;
         if (s.isSick) {
           blockReason = 'Sedang sakit — Mainan Interaktif ditolak!';
-        } else if (Math.round(s.happiness) >= 100) {
-          blockReason = 'Bahagia sudah 100! Mainan ditolak';
         } else if (s.energy <= 20) {
           blockReason = 'Sangat ngantuk (<=20 Energi)! Mainan Interaktif ditolak';
         } else if (s.hunger <= 2) {
@@ -1360,10 +1368,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
         const isDrowsyPenalty = drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy';
         const actEnergyMult = isDrowsyPenalty ? 1.15 : 1.0;
-        const targetHappy = Math.max(
-          8,
-          Math.round(ACTION_DELTAS.playInteractiveFull.happiness * mult * phaseMult.playHappyMult)
-        );
+        const isHappyAlreadyFull = Math.round(s.happiness) >= 100;
+        const targetHappy = isHappyAlreadyFull
+          ? 0
+          : Math.max(
+              8,
+              Math.round(ACTION_DELTAS.playInteractiveFull.happiness * mult * phaseMult.playHappyMult)
+            );
         const targetCost = Math.abs(ACTION_DELTAS.playInteractiveFull.energy) * actEnergyMult;
         s.playSession = {
           active: true,
@@ -1376,7 +1387,17 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           targetCleanCost: Math.abs(ACTION_DELTAS.playInteractiveFull.cleanliness),
           appliedCleanCost: 0,
         };
-        if (reason !== 'none' || isDrowsyPenalty || phaseMult.playHappyMult > 1) {
+        if (isHappyAlreadyFull) {
+          spawnParticle('text', catPos.x, catPos.y - 36, {
+            label: isDrowsyPenalty
+              ? `Mulai Ngantuk · Energi main 1,15x (-${targetCost.toFixed(1)} Energi · +0 Bahagia)`
+              : 'Bahagia penuh (100) · +0 Bahagia',
+            color: '#FDE68A',
+            size: 13,
+            vy: -24,
+            maxLife: 1.65,
+          });
+        } else if (reason !== 'none' || isDrowsyPenalty || phaseMult.playHappyMult > 1) {
           const middayBonus = phaseMult.playHappyMult > 1 ? ' · Bonus Siang +10%' : '';
           const reasonLabel =
             reason === 'ngambek'
@@ -1543,6 +1564,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       giveMedicine: () => {
         const s = simRef.current;
         soundEngine.unlock();
+        if (s.isRecovering) {
+          soundEngine.playBounce();
+          const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
+          spawnParticle('text', catPos.x, catPos.y - 34, {
+            label: 'Obat sudah diberikan · Sedang pulih bertahap',
+            color: '#6EE7B7',
+            size: 13,
+            vy: -26,
+            maxLife: 1.25,
+          });
+          return;
+        }
         if (!s.isSick) {
           soundEngine.playBounce();
           const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
@@ -1555,34 +1588,20 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           });
           return;
         }
-        if (s.recoveryTimer > 0) {
-          soundEngine.playBounce();
-          const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
-          spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: 'Obat sudah diberikan · Sedang pulih',
-            color: '#6EE7B7',
-            size: 13,
-            vy: -26,
-            maxLife: 1.2,
-          });
-          return;
-        }
 
-        s.recoveryTimer = 16;
+        s.isRecovering = true;
         s.starveGraceTimer = 0;
         s.lowCleanlinessStrikes = 0;
         s.dirtyStayTimer = 0;
-        s.sickReason = null;
-        s.health = Math.min(100, s.health + 12);
-        s.happiness = clamp(s.happiness + 6, 0, 100);
+        s.happiness = clamp(s.happiness + 4, 0, 100);
         soundEngine.playChime();
         const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: 'Diberi Obat · Pulih Perlahan',
+          label: 'Diberi Obat · Pemulihan dimulai (efek hilang di 90%)',
           color: '#6EE7B7',
-          size: 14,
+          size: 13.5,
           vy: -28,
-          maxLife: 1.5,
+          maxLife: 1.65,
         });
         for (let i = 0; i < 6; i++) {
           spawnParticle('sparkle', catPos.x + (Math.random() - 0.5) * 45, catPos.y - 12, {
@@ -1600,7 +1619,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const s = simRef.current;
         soundEngine.unlock();
         const now = Date.now();
-        if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none' || Math.round(s.happiness) >= 100 || s.energy < 20) {
+        if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none' || s.energy < 20) {
           onHudUpdate(buildSnapshot());
           return;
         }
@@ -1612,10 +1631,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const phaseMult = getDayPhaseMultipliers(dayPhase);
         const weatherMult = getWeatherMultipliers(s.weather);
         const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
-        const finalHappy = Math.max(
-          5,
-          Math.round((baseHappy + weatherMult.outdoorPlayHappyBonus) * mult * phaseMult.playHappyMult)
-        );
+        const isHappyFull = Math.round(s.happiness) >= 100;
+        const finalHappy = isHappyFull
+          ? 0
+          : Math.max(
+              5,
+              Math.round((baseHappy + weatherMult.outdoorPlayHappyBonus) * mult * phaseMult.playHappyMult)
+            );
         const isDrowsyPenalty = drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy';
         const energyCost =
           Math.round(
@@ -1625,7 +1647,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const cleanCost =
           Math.abs(ACTION_DELTAS.playMiniGame.cleanliness) + weatherMult.outdoorPlayCleanPenalty;
 
-        s.happiness = clamp(s.happiness + finalHappy, 0, 100);
+        if (finalHappy > 0) {
+          s.happiness = clamp(s.happiness + finalHappy, 0, 100);
+        }
         s.energy = clamp(s.energy - energyCost, 0, 100);
         s.hunger = clamp(s.hunger - hungerCost, 0, 100);
         s.cleanliness = clamp(s.cleanliness - cleanCost, 0, 100);
@@ -1633,17 +1657,20 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
         addXpAndCoins(12, Math.max(0, coinsEarned), catPos.x, catPos.y);
 
-        const bonusTags = [
-          phaseMult.playHappyMult > 1 ? 'Siang +10%' : '',
-          s.weather === 'hujan' ? 'Hujan +5' : '',
-        ].filter(Boolean);
+        const bonusTags = isHappyFull
+          ? []
+          : [
+              phaseMult.playHappyMult > 1 ? 'Siang +10%' : '',
+              s.weather === 'hujan' ? 'Hujan +5' : '',
+            ].filter(Boolean);
         const bonusTag = bonusTags.length > 0 ? ` (${bonusTags.join(' · ')})` : '';
         spawnParticle('text', catPos.x, catPos.y - 38, {
-          label:
-            reason !== 'none'
-              ? `+${finalHappy} Bahagia (Berkurang) · -${energyCost} Energi · -${cleanCost} Bersih`
-              : `+${finalHappy} Bahagia${bonusTag} · -${energyCost} Energi · -${hungerCost} Kenyang · -${cleanCost} Bersih`,
-          color: reason !== 'none' || isDrowsyPenalty ? '#FDE68A' : '#FBCFE8',
+          label: isHappyFull
+            ? `+0 Bahagia · -${energyCost} Energi · -${hungerCost} Kenyang · -${cleanCost} Bersih`
+            : reason !== 'none'
+            ? `+${finalHappy} Bahagia (Berkurang) · -${energyCost} Energi · -${cleanCost} Bersih`
+            : `+${finalHappy} Bahagia${bonusTag} · -${energyCost} Energi · -${hungerCost} Kenyang · -${cleanCost} Bersih`,
+          color: isHappyFull || reason !== 'none' || isDrowsyPenalty ? '#FDE68A' : '#FBCFE8',
           size: 13.5,
           vy: -28,
           maxLife: 1.6,
@@ -1866,6 +1893,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           energy: s.energy,
           health: s.health,
           isSick: s.isSick,
+          isRecovering: s.isRecovering,
           affectionXp: s.affectionXp,
           level: s.level,
           coins: s.coins,
@@ -1947,7 +1975,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.brushHintCooldown = 0;
         s.petActionCooldown = 0;
         s.petRubAccum = 0;
-        s.recoveryTimer = 0;
+        s.isRecovering = false;
         s.starveGraceTimer = 0;
         s.starveZeroTimer = 0;
         s.zeroEnergyElapsedSec = 0;
@@ -2078,6 +2106,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           cleanliness: save.cleanliness,
           energy: save.energy,
           health: save.health ?? 100,
+          isSick: save.isSick,
+          isRecovering: save.isRecovering,
           lifeStage: initialStage,
           stageElapsedSec: initialStageElapsed,
           careMistakes: initialMistakes,
@@ -2155,15 +2185,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.brushHintCooldown = 0;
         s.petActionCooldown = 0;
         s.petRubAccum = 0;
-        if (s.cleanliness <= 0) {
+        s.isRecovering = offline.isRecovering;
+        s.isSick = offline.isSick;
+        if (s.cleanliness <= 0 && !s.isRecovering) {
           s.cleanliness = 0;
-          s.health = Math.min(s.health, 44);
+          s.health = Math.min(s.health, SICK_START_HEALTH);
+          s.isSick = true;
           s.sickReason = 'dirty_zero';
         } else {
-          s.sickReason = s.health < 50 ? 'health' : null;
+          s.sickReason = s.isSick ? 'health' : null;
         }
-        s.isSick = s.health < 50 || Boolean(save.isSick && s.health < 50);
-        s.recoveryTimer = 0;
         s.starveGraceTimer = 0;
         s.starveZeroTimer = s.hunger <= 0 ? 10 : 0;
         s.deathReason = offline.passedAwayOfOldAge ? 'old_age' : null;
@@ -2312,22 +2343,27 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         }
         if (typeof patch.health === 'number') {
           s.health = clamp(patch.health, 0, 100);
-          s.isSick = s.health < 50;
-          if (!s.isSick) {
+          if (s.health <= SICK_START_HEALTH) {
+            s.isSick = true;
+            s.sickReason = s.sickReason ?? 'health';
+          } else if (s.health >= SICK_SYMPTOM_CLEAR_HEALTH) {
+            s.isSick = false;
             s.sickReason = null;
-            s.recoveryTimer = 0;
+          }
+          if (s.health >= 100) {
+            s.isRecovering = false;
           }
         }
         if (typeof patch.isSick === 'boolean') {
           s.isSick = patch.isSick;
           if (patch.isSick) {
-            s.health = Math.min(s.health, 42);
+            s.health = Math.min(s.health, SICK_START_HEALTH);
             s.sickReason = patch.sickReason ?? s.sickReason ?? 'health';
-            s.recoveryTimer = 0;
+            s.isRecovering = false;
           } else {
-            s.health = Math.max(s.health, 85);
+            s.health = Math.max(s.health, 100);
             s.sickReason = null;
-            s.recoveryTimer = 0;
+            s.isRecovering = false;
             s.lowCleanlinessStrikes = 0;
             s.starveZeroTimer = 0;
             s.zeroEnergyElapsedSec = 0;
@@ -2439,6 +2475,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             cleanliness: s.cleanliness,
             energy: s.energy,
             health: s.health,
+            isSick: s.isSick,
+            isRecovering: s.isRecovering,
             lifeStage: s.lifeStage,
             stageElapsedSec: s.stageElapsedSec,
             careMistakes: s.careMistakes,
@@ -2466,7 +2504,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.cleanliness = offline.cleanliness;
           s.energy = offline.energy;
           s.health = offline.health;
-          s.isSick = s.health < 50;
+          s.isSick = offline.isSick;
+          s.isRecovering = offline.isRecovering;
+          if (!s.isSick) {
+            s.sickReason = null;
+          } else if (!s.sickReason) {
+            s.sickReason = 'health';
+          }
           s.lifeStage = offline.lifeStage;
           s.stageElapsedSec = offline.stageElapsedSec;
           s.adultBranch = offline.adultBranch;
@@ -2648,7 +2692,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             s.health = 100;
             s.isSick = false;
             s.sickReason = null;
-            s.recoveryTimer = 0;
+            s.isRecovering = false;
             s.lowCleanlinessStrikes = 0;
             s.starveZeroTimer = 0;
             s.zeroEnergyElapsedSec = 0;
@@ -2701,6 +2745,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const babySheetImg = new Image();
         babySheetImg.src = CAT_BREEDS[breedKey].babySpriteSheet;
         babySpriteSheetsRef.current[breedKey] = babySheetImg;
+
+        const childSheetImg = new Image();
+        childSheetImg.src = CAT_BREEDS[breedKey].childSpriteSheet;
+        childSpriteSheetsRef.current[breedKey] = childSheetImg;
       });
 
       const canvas = canvasRef.current;
@@ -2888,7 +2936,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               if (
                 (s.lifeStage === 'child' || s.lifeStage === 'teen') &&
                 s.careMistakeCooldown <= 0 &&
-                (s.hunger < 20 || s.cleanliness < 20 || s.happiness < 20 || s.isSick)
+                (s.hunger < 20 || s.cleanliness < 20 || s.happiness < 20 || (s.isSick && !s.isRecovering))
               ) {
                 s.careMistakes += 1;
                 s.careMistakeCooldown = 45;
@@ -2996,10 +3044,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               if (
                 s.zeroEnergyElapsedSec >= OVERWORK_SICK_SECONDS &&
                 !s.isSick &&
-                s.recoveryTimer <= 0
+                !s.isRecovering
               ) {
-                s.health = Math.min(s.health, 44);
+                s.health = Math.min(s.health, SICK_START_HEALTH);
                 s.isSick = true;
+                s.isRecovering = false;
                 s.sickReason = 'overwork';
                 s.zeroEnergyElapsedSec = 0;
                 soundEngine.playMeow(0.76);
@@ -3390,16 +3439,45 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.starveZeroTimer = 0;
               }
 
-              // Dampak ke Kesehatan & Pemulihan Obat
-              if (s.recoveryTimer > 0) {
-                s.recoveryTimer = Math.max(0, s.recoveryTimer - simDt);
-                const healRate = s.hunger > 20 ? 5.2 : 3.2;
-                s.health = clamp(s.health + simDt * healRate, 0, 100);
-                s.happiness = clamp(s.happiness + simDt * 0.9, 0, 100);
+              // Dampak ke Kesehatan & Pemulihan Obat (1% -> 100% dalam 12 jam waktu game; efek sakit hilang di 90%)
+              if (s.isRecovering) {
+                const prevHealth = s.health;
+                s.health = clamp(s.health + simDt * HEALTH_RECOVERY_PER_REAL_SEC, 0, 100);
+                s.happiness = clamp(s.happiness + simDt * 0.25, 0, 100);
+
+                if (prevHealth < SICK_SYMPTOM_CLEAR_HEALTH && s.health >= SICK_SYMPTOM_CLEAR_HEALTH) {
+                  s.isSick = false;
+                  s.sickReason = null;
+                  soundEngine.playChime();
+                  const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+                  spawnParticle('text', catPos.x, catPos.y - 36, {
+                    label: 'Kesehatan 90%! Efek sakit hilang!',
+                    color: '#6EE7B7',
+                    size: 14,
+                    vy: -26,
+                    maxLife: 1.75,
+                  });
+                }
+
+                if (s.health >= 100) {
+                  s.health = 100;
+                  s.isRecovering = false;
+                  s.isSick = false;
+                  s.sickReason = null;
+                  soundEngine.playMeow(1.08);
+                  const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+                  spawnParticle('text', catPos.x, catPos.y - 36, {
+                    label: `${s.name} Pulih Total 100%!`,
+                    color: '#34D399',
+                    size: 14.5,
+                    vy: -28,
+                    maxLife: 1.85,
+                  });
+                }
 
                 s.healParticleTimer -= dt;
                 if (s.healParticleTimer <= 0) {
-                  s.healParticleTimer = 0.6;
+                  s.healParticleTimer = 0.85;
                   const pScale = Math.max(0.55, rt.scale * 0.85);
                   const cPos = roomToScreen(s.nx, s.ny - 0.05, rt);
                   const kind = Math.random() < 0.4 ? 'heart_sparkle' : 'sparkle';
@@ -3420,14 +3498,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   );
                 }
               } else {
-                let healthDrain = s.cleanliness < 15 ? 0.16 : 0;
+                let healthDrain = s.isSick ? UNTREATED_SICK_DRAIN_PER_REAL_SEC : 0;
+                if (s.cleanliness < 15) {
+                  healthDrain += 0.16;
+                }
                 if (s.hunger <= 0 && s.starveZeroTimer > 30) {
                   healthDrain += 0.24;
                   s.happiness = clamp(s.happiness - simDt * 0.12, 0, 100);
                   if (s.starveZeroTimer > 75 && !s.isSick) {
-                    s.health = Math.min(s.health, 44);
+                    s.health = Math.min(s.health, SICK_START_HEALTH);
                     s.isSick = true;
                     s.sickReason = 'health';
+                    soundEngine.playMeow(0.76);
                   }
                 } else if (s.hunger < 20) {
                   healthDrain += 0.05;
@@ -3435,10 +3517,27 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 if (healthDrain > 0) {
                   s.health = clamp(s.health - simDt * healthDrain, 0, 100);
                 }
+
+                // Jika kesehatan turun hingga <= 70%, kucing masuk status Sakit
+                if (!s.isSick && s.health <= SICK_START_HEALTH) {
+                  s.isSick = true;
+                  s.sickReason = s.sickReason ?? 'health';
+                  soundEngine.playMeow(0.76);
+                  const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+                  spawnParticle('text', catPos.x, catPos.y - 36, {
+                    label: `Kesehatan ${Math.round(s.health)}%! ${s.name} jatuh sakit!`,
+                    color: '#FCA5A5',
+                    size: 14,
+                    vy: -26,
+                    maxLife: 1.7,
+                  });
+                }
               }
 
-              // Regenerasi Kesehatan: jika kenyang, bersih, energi, dan bahagia > 75 secara bersamaan
+              // Regenerasi Kesehatan alami: hanya jika tidak sedang sakit/pemulihan dan seluruh stat > 75
               if (
+                !s.isSick &&
+                !s.isRecovering &&
                 s.hunger > 75 &&
                 s.cleanliness > 75 &&
                 s.energy > 75 &&
@@ -3475,10 +3574,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
 
               // Kucing langsung sakit ketika kebersihan menjadi 0
-              if (s.cleanliness <= 0 && s.recoveryTimer <= 0) {
+              if (s.cleanliness <= 0 && !s.isRecovering) {
                 s.cleanliness = 0;
                 if (!s.isSick) {
-                  s.health = Math.min(s.health, 44);
+                  s.health = Math.min(s.health, SICK_START_HEALTH);
                   s.isSick = true;
                   s.sickReason = 'dirty_zero';
                   soundEngine.playMeow(0.76);
@@ -3497,7 +3596,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               if (
                 s.lowCleanlinessStrikes >= CHRONIC_DIRTY_STRIKES &&
                 !s.isSick &&
-                s.recoveryTimer <= 0
+                !s.isRecovering
               ) {
                 s.chronicSickCheckTimer -= dt;
                 if (s.chronicSickCheckTimer <= 0) {
@@ -3507,7 +3606,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     0.14 + (s.lowCleanlinessStrikes - CHRONIC_DIRTY_STRIKES) * 0.08
                   );
                   if (Math.random() < sickChance) {
-                    s.health = Math.min(s.health, 44);
+                    s.health = Math.min(s.health, SICK_START_HEALTH);
                     s.isSick = true;
                     s.sickReason = 'chronic_dirty';
                     s.lowCleanlinessStrikes = Math.max(0, s.lowCleanlinessStrikes - 2);
@@ -3524,8 +3623,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 }
               }
 
-              // Jika kesehatan < 50, kucing masuk status Sakit
-              s.isSick = s.health < 50;
+              // Selama masa pemulihan, efek sakit bertahan hingga kesehatan >= 90%
+              if (s.isRecovering) {
+                s.isSick = s.health < SICK_SYMPTOM_CLEAR_HEALTH;
+              }
               if (!s.isSick) {
                 s.sickReason = null;
               } else if (!s.sickReason) {
@@ -3539,8 +3640,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 onGameOver(buildSnapshot());
               }
 
-              // Ambient mood-based particles around the cat
-              if (s.behavior !== 'SLEEPING' && s.recoveryTimer <= 0) {
+              // Ambient mood-based particles around the cat (efek sakit tetap tampil hingga 90%)
+              if (s.behavior !== 'SLEEPING' && (s.isSick || !s.isRecovering)) {
                 s.moodParticleTimer -= dt;
                 if (s.moodParticleTimer <= 0) {
                   const pScale = Math.max(0.55, rt.scale * 0.85);
@@ -3985,9 +4086,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                           happyRem,
                           Math.max(2, Math.round(s.playSession.targetHappiness * 0.2))
                         );
-                        s.happiness = clamp(s.happiness + burstH, 0, 100);
-                        s.playSession.appliedHappiness += burstH;
-                      } else {
+                        if (burstH > 0) {
+                          s.happiness = clamp(s.happiness + burstH, 0, 100);
+                          s.playSession.appliedHappiness += burstH;
+                        }
+                      } else if (Math.round(s.happiness) < 100) {
                         s.happiness = clamp(
                           s.happiness + toyOpt.catchHappiness * PERSONALITY_MODS[s.personality].ballHappy,
                           0,
@@ -4178,7 +4281,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           happiness: s.happiness,
           isHungry: s.hunger < 40,
           isSick: s.isSick,
-          isRecovering: s.recoveryTimer > 0,
+          isRecovering: s.isRecovering,
           lifeStage: s.lifeStage,
           adultBranch: s.adultBranch,
           time: s.time,
@@ -4210,7 +4313,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         roomObjects.forEach((d) => d.draw());
 
         // Karakter kucing selalu berada di atas semua objek ruangan (aksesori tetap di atas kucing)
-        drawCat(ctx, catState, rt, spriteSheetsRef.current, babySpriteSheetsRef.current);
+        drawCat(
+          ctx,
+          catState,
+          rt,
+          spriteSheetsRef.current,
+          babySpriteSheetsRef.current,
+          childSpriteSheetsRef.current
+        );
 
         drawParticles(ctx, s.particles);
 

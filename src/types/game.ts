@@ -412,6 +412,7 @@ export interface BreedProfile {
   personality: string;
   spriteSheet: string;
   babySpriteSheet: string;
+  childSpriteSheet: string;
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -429,6 +430,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     personality: 'Lincah & doyan camilan',
     spriteSheet: '/assets/sprites/cat_oren.png',
     babySpriteSheet: '/assets/sprites/baby_oren.png',
+    childSpriteSheet: '/assets/sprites/child_oren.png',
     primaryColor: '#E88B38',
     secondaryColor: '#FFF3E0',
     accentColor: '#B8591C',
@@ -444,6 +446,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     personality: 'Manja & suka dipeluk',
     spriteSheet: '/assets/sprites/cat_mochi.png',
     babySpriteSheet: '/assets/sprites/baby_mochi.png',
+    childSpriteSheet: '/assets/sprites/child_mochi.png',
     primaryColor: '#F5ECE0',
     secondaryColor: '#FFFDF9',
     accentColor: '#D6C2AA',
@@ -459,6 +462,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     personality: 'Cerdas & jago tangkap bola',
     spriteSheet: '/assets/sprites/cat_arang.png',
     babySpriteSheet: '/assets/sprites/baby_arang.png',
+    childSpriteSheet: '/assets/sprites/child_arang.png',
     primaryColor: '#343942',
     secondaryColor: '#F7F7F5',
     accentColor: '#1F2329',
@@ -474,6 +478,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     personality: 'Tenang & penuh rasa ingin tahu',
     spriteSheet: '/assets/sprites/cat_abu.png',
     babySpriteSheet: '/assets/sprites/baby_abu.png',
+    childSpriteSheet: '/assets/sprites/child_abu.png',
     primaryColor: '#98A4B3',
     secondaryColor: '#F2F4F7',
     accentColor: '#697686',
@@ -830,6 +835,7 @@ export interface SaveData {
   energy: number;
   health?: number;
   isSick?: boolean;
+  isRecovering?: boolean;
   affectionXp: number;
   level: number;
   coins: number;

@@ -1,27 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, RotateCcw } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import {
   CAT_BREEDS,
   CatBreed,
   GameSettings,
-  HungerSpeed,
   LIFE_STAGES,
   SaveData,
 } from '../types/game';
 import { CatAvatarSvg } from './CatAvatarSvg';
 import {
-  CareNotificationPermission,
-  getCareNotificationPermission,
-  requestCareNotificationPermission,
-} from '../utils/catCareSystem';
-import {
+  OrnateCornerFlourishes,
   PixelExitDoorIcon,
   PixelGearButtonIcon,
   PixelPawButtonIcon,
   PixelPlayButtonIcon,
 } from './CuteGameIcons';
+import { SettingsModalContent } from './SettingsModalContent';
+import { CatEarsHeaderPlaque, CatPortraitMedallion } from './WoodPanelChrome';
 
-type TitleSubView = 'MENU' | 'NEW_ADOPT' | 'SETTINGS' | 'QUIT';
+type TitleSubView = 'MENU' | 'NEW_ADOPT' | 'SETTINGS';
 
 interface TitleScreenProps {
   selectedBreed: CatBreed;
@@ -32,6 +29,7 @@ interface TitleScreenProps {
   onClearSave: () => void;
   onStartNew: (name: string, breed: CatBreed) => void;
   onContinueSave: () => void;
+  onQuitApp: () => void;
 }
 
 interface TitleSpriteCatProps {
@@ -72,18 +70,12 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onClearSave,
   onStartNew,
   onContinueSave,
+  onQuitApp,
 }) => {
   const [subView, setSubView] = useState<TitleSubView>('MENU');
+  const [quitConfirmOpen, setQuitConfirmOpen] = useState(false);
   const [catName, setCatName] = useState(CAT_BREEDS[selectedBreed].defaultName);
   const [tick, setTick] = useState(0);
-  const [notifPerm, setNotifPerm] = useState<CareNotificationPermission>(() =>
-    getCareNotificationPermission()
-  );
-
-  const handleRequestNotif = async () => {
-    const res = await requestCareNotificationPermission();
-    setNotifPerm(res);
-  };
 
   const handleBreedPick = (breed: CatBreed) => {
     onSelectBreed(breed);
@@ -107,12 +99,17 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         }
         return;
       }
+      if (e.key === 'Escape' && quitConfirmOpen) {
+        e.preventDefault();
+        setQuitConfirmOpen(false);
+        return;
+      }
       if (e.key === 'Escape' && subView !== 'MENU') {
         e.preventDefault();
         setSubView('MENU');
         return;
       }
-      if ((e.key === 'Enter' || e.key === ' ') && subView === 'MENU') {
+      if ((e.key === 'Enter' || e.key === ' ') && subView === 'MENU' && !quitConfirmOpen) {
         e.preventDefault();
         if (existingSave) {
           onContinueSave();
@@ -123,7 +120,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [subView, catName, selectedBreed, existingSave, onStartNew, onContinueSave]);
+  }, [subView, quitConfirmOpen, catName, selectedBreed, existingSave, onStartNew, onContinueSave]);
 
   const sleepCol = 2;
   const playCol = [0, 1, 2, 3, 4, 5][tick % 6];
@@ -200,7 +197,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Top-Right: Square Sound Button (absolute so it doesn't consume vertical hero space on short screens) */}
-      <div className="absolute top-3 right-3 sm:top-5 sm:right-5 short:top-2 short:right-3 z-20 flex items-center gap-2">
+      <div
+        data-ui-id="title-sound-btn"
+        data-ui-label="Tombol Suara"
+        className="absolute top-3 right-3 sm:top-5 sm:right-5 short:top-2 short:right-3 z-20 flex items-center gap-2"
+      >
         <button
           type="button"
           onClick={() => onUpdateSettings({ muted: !settings.muted })}
@@ -244,50 +245,24 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             subView !== 'MENU' ? 'short:hidden' : ''
           }`}
         >
-          <img
-            src="/assets/ui/cat_logo_wink.png"
-            alt="Logo Kucing"
-            className="w-20 h-18 sm:w-24 sm:h-22 short:w-12 short:h-11 object-contain -mb-2 short:-mb-1 drop-shadow-[0_4px_0_rgba(78,39,15,0.35)]"
-            draggable={false}
-          />
+          <h1
+            data-ui-id="title-logo"
+            data-ui-label="Logo LumaPet"
+            className="relative m-0 flex items-center justify-center"
+          >
+            <img
+              src="/assets/ui/lumapet_logo.png"
+              alt="LumaPet"
+              className="h-22 sm:h-28 md:h-32 short:h-16 w-auto max-w-[88vw] object-contain drop-shadow-[0_4px_0_rgba(78,39,15,0.28)]"
+              draggable={false}
+            />
+          </h1>
 
-          <div className="relative inline-block">
-            {/* Cat Ears behind R & g */}
-            <svg
-              viewBox="0 0 42 32"
-              className="absolute -top-4 left-0.5 short:-top-2.5 short:left-0 w-10 h-8 short:w-6 short:h-5 pointer-events-none"
-              aria-hidden="true"
-            >
-              <path
-                d="M4 30L10 4L34 20Z"
-                fill="#F59E0B"
-                stroke="#4E270F"
-                strokeWidth="4"
-                strokeLinejoin="round"
-              />
-              <path d="M10 24L13 10L25 19Z" fill="#F9A8D4" />
-            </svg>
-            <svg
-              viewBox="0 0 42 32"
-              className="absolute -top-4 right-0 short:-top-2.5 w-10 h-8 short:w-6 short:h-5 pointer-events-none"
-              aria-hidden="true"
-            >
-              <path
-                d="M38 30L32 4L8 20Z"
-                fill="#F59E0B"
-                stroke="#4E270F"
-                strokeWidth="4"
-                strokeLinejoin="round"
-              />
-              <path d="M32 24L29 10L17 19Z" fill="#F9A8D4" />
-            </svg>
-
-            <h1 className="relative font-display font-black text-4xl sm:text-5xl md:text-[56px] short:text-[32px] leading-none tracking-tight text-[#F6A637] title-text-outline">
-              Rumah Kucing
-            </h1>
-          </div>
-
-          <p className="mt-2 short:mt-1 font-display font-bold text-sm sm:text-base md:text-lg short:text-xs text-[#FFFDF7] menu-text-outline">
+          <p
+            data-ui-id="title-subtitle"
+            data-ui-label="Subjudul"
+            className="mt-2 short:mt-1 font-display font-bold text-sm sm:text-base md:text-lg short:text-xs text-[#FFFDF7] menu-text-outline"
+          >
             Rawat, elus, dan main bersama sahabat berbulu
           </p>
         </div>
@@ -374,171 +349,36 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             )}
 
             {subView === 'SETTINGS' && (
-              <div className="wood-menu-panel rounded-2xl short:rounded-xl border-[3px] border-[#6E3B1B] shadow-[inset_0_3px_0_#FFFBF2,0_6px_0_#6E3B1B] p-5 short:p-3.5 space-y-4 short:space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-display text-lg short:text-base font-extrabold text-[#5A2D12]">
-                    Pengaturan
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setSubView('MENU')}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-[#7A4928] hover:text-[#5A2D12] py-1.5 px-2.5 min-h-[36px] rounded-lg bg-[#FFFDF8] border-2 border-[#6E3B1B]/30 cursor-pointer"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Kembali</span>
-                  </button>
-                </div>
-
-                <div className="p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#6E3B1B]/25 space-y-2 short:space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Volume Suara</p>
-                      <p className="text-xs short:text-[10.5px] text-[#7A4928]">
-                        Atur persentase besar kecil suara game
-                      </p>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-lg bg-[#FFF3D9] border border-[#6E3B1B]/30 text-xs font-extrabold text-[#5A2D12] tabular-nums">
-                      {settings.volume}%
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={settings.volume}
-                    onChange={(e) => onUpdateSettings({ volume: Number(e.target.value) })}
-                    aria-label="Persentase volume suara"
-                    className="w-full h-2.5 rounded-full bg-[#EFE2C8] accent-[#2D6A4F] cursor-pointer"
+              <div className="fixed inset-0 z-30 bg-[#18221D]/55 flex items-center justify-center p-4 short:p-2.5 safe-inset-hud">
+                <div className="flex flex-col md:flex-row short:flex-row items-center justify-center gap-4 sm:gap-6 short:gap-3.5 w-full max-w-[780px] short:max-w-[660px]">
+                  <CatPortraitMedallion
+                    breed={existingSave?.breed ?? selectedBreed}
+                    hat={existingSave?.equippedHat ?? 'none'}
+                    glasses={existingSave?.equippedGlasses ?? 'none'}
+                    scarf={existingSave?.equippedScarf ?? 'default'}
+                    lifeStage={existingSave?.lifeStage ?? 'baby'}
+                    className="w-36 h-36 sm:w-48 sm:h-48 short:w-28 short:h-28"
                   />
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 short:grid-cols-2 gap-2.5 short:gap-2">
-                  <div className="flex items-center justify-between gap-2.5 p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#6E3B1B]/25">
-                    <div className="min-w-0">
-                      <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Efek Suara (SFX)</p>
-                      <p className="text-[11px] short:text-[10px] text-[#7A4928] leading-tight">
-                        Meong, dengkuran &amp; mainan
-                      </p>
+                  <div className="relative flex-1 w-full max-w-[540px] short:max-w-[490px] mt-3 md:mt-0 short:mt-0">
+                    <div className="absolute -top-6 sm:-top-7 short:-top-4 left-1/2 -translate-x-1/2 z-20">
+                      <CatEarsHeaderPlaque title="Pengaturan" />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onUpdateSettings({ sfxMuted: !settings.sfxMuted })}
-                      className={`px-3 py-1.5 min-h-[38px] rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer border-2 shrink-0 ${
-                        settings.sfxMuted
-                          ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#5B6B63]'
-                          : 'bg-[#2D6A4F] border-[#1B4332] text-white'
-                      }`}
-                    >
-                      {settings.sfxMuted ? 'Mati' : 'Aktif'}
-                    </button>
-                  </div>
 
-                  <div className="flex items-center justify-between gap-2.5 p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#6E3B1B]/25">
-                    <div className="min-w-0">
-                      <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Musik Latar</p>
-                      <p className="text-[11px] short:text-[10px] text-[#7A4928] leading-tight">
-                        Musik menu &amp; dalam game
-                      </p>
+                    <div className="wood-modal-frame rounded-3xl short:rounded-2xl p-2.5 sm:p-3 short:p-2 border-[3px] short:border-2 border-[#5E2F12] shadow-[inset_0_2px_0_rgba(255,235,205,0.45),0_8px_0_rgba(58,28,10,0.45)]">
+                      <div className="relative rounded-2xl short:rounded-xl bg-[#FFF6E3] border-[2.5px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFDF8] px-4 pb-4 pt-8 sm:px-6 sm:pb-5 sm:pt-9 short:px-3.5 short:pb-3 short:pt-6 max-h-[82dvh] short:max-h-[86dvh] overflow-y-auto">
+                        <OrnateCornerFlourishes className="short:w-3 short:h-3" />
+                        <SettingsModalContent
+                          settings={settings}
+                          onUpdateSettings={onUpdateSettings}
+                          onClose={() => setSubView('MENU')}
+                          onClearSave={onClearSave}
+                          hasExistingSave={Boolean(existingSave)}
+                        />
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onUpdateSettings({ musicMuted: !settings.musicMuted })}
-                      className={`px-3 py-1.5 min-h-[38px] rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer border-2 shrink-0 ${
-                        settings.musicMuted
-                          ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#5B6B63]'
-                          : 'bg-[#2D6A4F] border-[#1B4332] text-white'
-                      }`}
-                    >
-                      {settings.musicMuted ? 'Mati' : 'Aktif'}
-                    </button>
                   </div>
                 </div>
-
-                <div className="p-3 short:p-2.5 rounded-xl bg-[#FFFDF8] border-2 border-[#6E3B1B]/25">
-                  <p className="text-sm short:text-xs font-bold text-[#5A2D12] mb-2 short:mb-1.5">
-                    Laju Rasa Lapar
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(['santai', 'normal'] as HungerSpeed[]).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => onUpdateSettings({ hungerSpeed: mode })}
-                        className={`px-3 py-2 short:py-1.5 min-h-[40px] rounded-lg text-xs font-bold border-2 transition-colors cursor-pointer ${
-                          settings.hungerSpeed === mode
-                            ? 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722]'
-                            : 'bg-[#FAF8F2] border-[#6E3B1B]/20 text-[#7A4928]'
-                        }`}
-                      >
-                        {mode === 'santai' ? 'Santai (Sangat Lama)' : 'Normal (Lama)'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 p-3 short:p-2.5 rounded-xl bg-[#FFFDF8] border-2 border-[#6E3B1B]/25">
-                  <div>
-                    <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Notifikasi Makan</p>
-                    <p className="text-xs short:text-[11px] text-[#7A4928]">
-                      Ingatkan saat kenyang di bawah 40%
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={notifPerm === 'granted' || notifPerm === 'denied' || notifPerm === 'unsupported'}
-                    onClick={handleRequestNotif}
-                    className={`px-3.5 py-2 min-h-[40px] rounded-lg text-xs font-bold transition-colors whitespace-nowrap border-2 ${
-                      notifPerm === 'granted'
-                        ? 'bg-[#2D6A4F] border-[#1B4332] text-white cursor-default'
-                        : notifPerm === 'denied' || notifPerm === 'unsupported'
-                        ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#5B6B63] cursor-not-allowed'
-                        : 'bg-[#FFF3D9] border-[#7A4928] text-[#5A2D12] hover:bg-[#FDE68A] cursor-pointer'
-                    }`}
-                  >
-                    {notifPerm === 'granted'
-                      ? 'Aktif'
-                      : notifPerm === 'denied'
-                      ? 'Diblokir'
-                      : notifPerm === 'unsupported'
-                      ? 'Tidak Didukung'
-                      : 'Izinkan'}
-                  </button>
-                </div>
-
-                {existingSave && (
-                  <button
-                    type="button"
-                    onClick={onClearSave}
-                    className="w-full px-4 py-2.5 short:py-2 min-h-[44px] short:min-h-[40px] rounded-xl bg-[#FFFDF8] border-2 border-[#DC2626]/40 text-[#B91C1C] text-xs font-bold hover:bg-[#FEF2F2] transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Hapus Data Simpanan</span>
-                  </button>
-                )}
-              </div>
-            )}
-
-            {subView === 'QUIT' && (
-              <div className="wood-menu-panel rounded-2xl short:rounded-xl border-[3px] border-[#6E3B1B] shadow-[inset_0_3px_0_#FFFBF2,0_6px_0_#6E3B1B] p-6 short:p-4 text-center space-y-4 short:space-y-2.5">
-                <div className="flex justify-center">
-                  <CatAvatarSvg breed={selectedBreed} size={56} lifeStage="baby" />
-                </div>
-                <div>
-                  <h2 className="font-display text-xl short:text-lg font-extrabold text-[#5A2D12]">
-                    Sampai Jumpa Lagi!
-                  </h2>
-                  <p className="text-sm short:text-xs font-medium text-[#7A4928] mt-1">
-                    Terima kasih sudah bermain di Rumah Kucing. Kamu dapat menutup halaman ini atau kembali ke menu utama.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSubView('MENU')}
-                  className="w-full px-5 py-3 short:py-2 min-h-[46px] short:min-h-[42px] rounded-xl bg-gradient-to-b from-[#699A4E] to-[#4E7B37] border-[3px] border-[#385926] text-white font-display font-bold text-sm hover:brightness-105 transition-all cursor-pointer menu-text-outline"
-                >
-                  Kembali ke Menu Utama
-                </button>
               </div>
             )}
           </div>
@@ -551,7 +391,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           {/* Bottom-Left Compact Keluar Button */}
           <button
             type="button"
-            onClick={() => setSubView('QUIT')}
+            data-ui-id="title-quit-btn"
+            data-ui-label="Tombol Keluar"
+            onClick={() => setQuitConfirmOpen(true)}
             className="sm:absolute short:absolute sm:left-6 sm:bottom-6 short:left-3 short:bottom-2.5 flex flex-col items-center gap-1 short:gap-0.5 min-w-[44px] min-h-[44px] group cursor-pointer bg-transparent border-0 p-0"
             aria-label="Keluar"
           >
@@ -564,10 +406,16 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </button>
 
           {/* Centered Horizontal Action Row: Mulai Baru | Lanjutkan | Pengaturan */}
-          <div className="flex flex-wrap sm:flex-nowrap items-center justify-center gap-3 sm:gap-5 short:gap-2.5">
+          <div
+            data-ui-id="title-action-row"
+            data-ui-label="Baris Tombol Menu"
+            className="flex flex-wrap sm:flex-nowrap items-center justify-center gap-3 sm:gap-5 short:gap-2.5"
+          >
             {/* 1. Mulai Baru */}
             <button
               type="button"
+              data-ui-id="title-new-btn"
+              data-ui-label="Tombol Mulai Baru"
               onClick={() => setSubView('NEW_ADOPT')}
               className="px-5 py-2.5 short:px-3.5 short:py-1.5 min-h-[54px] short:min-h-[44px] rounded-2xl short:rounded-xl bg-gradient-to-b from-[#EE8B3B] to-[#D4671F] border-[3px] short:border-2 border-[#5E2F12] ring-2 ring-white/85 shadow-[inset_0_2px_0_#FBB876,0_4px_0_#5E2F12,0_8px_14px_rgba(35,18,6,0.28)] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2.5 short:gap-1.5 cursor-pointer whitespace-nowrap"
             >
@@ -580,6 +428,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             {/* 2. Lanjutkan (Center Featured Button) */}
             <button
               type="button"
+              data-ui-id="title-continue-btn"
+              data-ui-label="Tombol Lanjutkan"
               disabled={!existingSave}
               onClick={onContinueSave}
               className={`px-6 sm:px-7 py-2.5 short:px-4 short:py-1.5 min-h-[64px] short:min-h-[48px] rounded-2xl short:rounded-xl border-[3px] short:border-2 ring-2 ring-white/90 transition-all inline-flex items-center gap-3 short:gap-2 whitespace-nowrap ${
@@ -612,6 +462,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             {/* 3. Pengaturan */}
             <button
               type="button"
+              data-ui-id="title-settings-btn"
+              data-ui-label="Tombol Pengaturan"
               onClick={() => setSubView('SETTINGS')}
               className="px-5 py-2.5 short:px-3.5 short:py-1.5 min-h-[54px] short:min-h-[44px] rounded-2xl short:rounded-xl bg-gradient-to-b from-[#F5E4C8] to-[#DFC096] border-[3px] short:border-2 border-[#5E2F12] ring-2 ring-white/85 shadow-[0_4px_0_#5E2F12,0_8px_14px_rgba(35,18,6,0.28)] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2.5 short:gap-1.5 cursor-pointer whitespace-nowrap"
             >
@@ -620,6 +472,49 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 Pengaturan
               </span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Quit Confirmation Modal */}
+      {quitConfirmOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quit-confirm-title"
+          className="fixed inset-0 z-40 bg-[#18221D]/65 backdrop-blur-[2px] flex items-center justify-center p-4"
+        >
+          <div className="w-full max-w-[360px] wood-menu-panel rounded-2xl border-[3px] border-[#6E3B1B] shadow-[inset_0_3px_0_#FFFBF2,0_8px_0_#5E2F12,0_16px_32px_rgba(0,0,0,0.45)] p-5 text-center space-y-4">
+            <div className="flex justify-center">
+              <CatAvatarSvg breed={selectedBreed} size={56} lifeStage="baby" />
+            </div>
+            <div>
+              <h2
+                id="quit-confirm-title"
+                className="font-display text-xl font-extrabold text-[#5A2D12]"
+              >
+                Apakah Anda yakin?
+              </h2>
+              <p className="text-sm font-medium text-[#7A4928] mt-1">
+                Apakah Anda yakin ingin keluar dari permainan?
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={onQuitApp}
+                className="px-4 py-2.5 min-h-[44px] rounded-xl bg-gradient-to-b from-[#F47B6A] to-[#D64B3B] border-[2.5px] border-[#6E241C] shadow-[inset_0_2px_0_#FCA5A5,0_3px_0_#6E241C] text-white font-display font-extrabold text-sm hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer menu-text-outline"
+              >
+                Ya
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuitConfirmOpen(false)}
+                className="px-4 py-2.5 min-h-[44px] rounded-xl bg-gradient-to-b from-[#7BB453] to-[#4D8130] border-[2.5px] border-[#385926] shadow-[inset_0_2px_0_#B4E08E,0_3px_0_#385926] text-white font-display font-extrabold text-sm hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer menu-text-outline"
+              >
+                Tidak
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -16,6 +16,15 @@ export const GAME_HOURS_PER_REAL_SEC = 73 / 3600; // 1 jam game ~ 49,3 detik nya
 export const INITIAL_GAME_HOUR = 7.0; // Mulai pukul 07:00 (Pagi)
 export const POINTS_PER_STAT_LEVEL = 20; // Skala 0-100: 1 level = 20 poin (5/5 level)
 
+export const SICK_START_HEALTH = 70;
+export const SICK_SYMPTOM_CLEAR_HEALTH = 90;
+export const HEALTH_RECOVERY_GAME_HOURS = 12;
+export const HEALTH_RECOVERY_PER_GAME_HOUR = (100 - 1) / HEALTH_RECOVERY_GAME_HOURS; // 1% -> 100% dalam 12 jam waktu game
+export const HEALTH_RECOVERY_PER_REAL_SEC =
+  HEALTH_RECOVERY_PER_GAME_HOUR * GAME_HOURS_PER_REAL_SEC;
+export const UNTREATED_SICK_DRAIN_PER_REAL_SEC =
+  (SICK_START_HEALTH / HEALTH_RECOVERY_GAME_HOURS) * GAME_HOURS_PER_REAL_SEC;
+
 // Default baseline rate untuk fallback jadwal notifikasi
 export const OFFLINE_HUNGER_DECAY_PER_SEC = 20 / (50 * 60);
 export const OFFLINE_HEALTH_DECAY_PER_SEC = 100 / (24 * 3600);
@@ -36,6 +45,8 @@ export interface OfflineDecayInput {
   cleanliness: number;
   energy: number;
   health: number;
+  isSick?: boolean;
+  isRecovering?: boolean;
   lifeStage: LifeStage;
   stageElapsedSec: number;
   careMistakes: number;
@@ -66,6 +77,8 @@ export interface OfflineDecayResult {
   cleanliness: number;
   energy: number;
   health: number;
+  isSick: boolean;
+  isRecovering: boolean;
   lifeStage: LifeStage;
   stageElapsedSec: number;
   adultBranch: AdultEvolutionBranch;
@@ -327,6 +340,11 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
   const startClean = clamp(input.cleanliness, 0, 100);
   const startEnergy = clamp(input.energy, 0, 100);
   const startHealth = clamp(input.health, 0, 100);
+  let isRecovering = Boolean(input.isRecovering) && startHealth < 100;
+  let isSick =
+    Boolean(input.isSick) ||
+    startHealth <= SICK_START_HEALTH ||
+    (isRecovering && startHealth < SICK_SYMPTOM_CLEAR_HEALTH);
 
   let stage: LifeStage = input.lifeStage;
   let stageElapsed = Math.max(0, input.stageElapsedSec);
@@ -377,6 +395,8 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
       cleanliness: startClean,
       energy: startEnergy,
       health: startHealth,
+      isSick,
+      isRecovering,
       lifeStage: stage,
       stageElapsedSec: stageElapsed,
       adultBranch: branch,
@@ -519,14 +539,36 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
       );
     }
 
-    // Health penalty when hunger hits 0 or cleanliness hits 0 during long absence
-    if (prevHunger <= 0 || hunger <= 0) {
-      health = clamp(health - step * (100 / (16 * 3600)), 0, 100);
-    } else if (hunger < 20) {
-      health = clamp(health - step * (100 / (36 * 3600)), 0, 100);
-    }
-    if (cleanliness <= 0) {
-      health = clamp(health - step * (100 / (24 * 3600)), 0, 100);
+    // Health penalty / recovery during absence
+    if (isRecovering) {
+      health = clamp(health + step * HEALTH_RECOVERY_PER_REAL_SEC, 0, 100);
+      if (health >= SICK_SYMPTOM_CLEAR_HEALTH) {
+        isSick = false;
+      }
+      if (health >= 100) {
+        health = 100;
+        isRecovering = false;
+        isSick = false;
+      }
+    } else {
+      if (isSick) {
+        health = clamp(health - step * UNTREATED_SICK_DRAIN_PER_REAL_SEC, 0, 100);
+      }
+      if (prevHunger <= 0 || hunger <= 0) {
+        health = clamp(health - step * (100 / (16 * 3600)), 0, 100);
+      } else if (hunger < 20) {
+        health = clamp(health - step * (100 / (36 * 3600)), 0, 100);
+      }
+      if (cleanliness <= 0) {
+        health = clamp(health - step * (100 / (24 * 3600)), 0, 100);
+        if (!isSick) {
+          health = Math.min(health, SICK_START_HEALTH);
+          isSick = true;
+        }
+      }
+      if (!isSick && health <= SICK_START_HEALTH) {
+        isSick = true;
+      }
     }
 
     stageElapsed += step;
@@ -569,6 +611,8 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
     cleanliness,
     energy,
     health,
+    isSick,
+    isRecovering,
     lifeStage: stage,
     stageElapsedSec: stageElapsed,
     adultBranch: branch,

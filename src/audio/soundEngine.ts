@@ -5,6 +5,8 @@ const MUSIC_SOURCES: Record<MusicTrack, string> = {
   ingame: '/assets/aistudio/in_game_music_d9fe22e9.mp3',
 };
 
+const RAIN_SFX_SOURCE = '/assets/aistudio/Hujan_Petir_d981c0cb.mp3';
+
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private sfxMasterGain: GainNode | null = null;
@@ -19,6 +21,11 @@ class SoundEngine {
   private desiredTrack: MusicTrack | null = null;
   private desiredVolume: number = 0.35;
   private activeTrack: MusicTrack | null = null;
+
+  private rainAudio: HTMLAudioElement | null = null;
+  private desiredRainActive: boolean = false;
+  private desiredRainVolume: number = 0.45;
+
   private visibilityBound: boolean = false;
 
   private ensureMusicElement(track: MusicTrack): HTMLAudioElement | null {
@@ -34,6 +41,18 @@ class SoundEngine {
     return el;
   }
 
+  private ensureRainElement(): HTMLAudioElement | null {
+    if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
+    if (!this.rainAudio) {
+      const el = new Audio(RAIN_SFX_SOURCE);
+      el.loop = true;
+      el.preload = 'auto';
+      this.rainAudio = el;
+    }
+    this.bindVisibilityHandler();
+    return this.rainAudio;
+  }
+
   private bindVisibilityHandler(): void {
     if (this.visibilityBound || typeof document === 'undefined') return;
     this.visibilityBound = true;
@@ -42,8 +61,12 @@ class SoundEngine {
         Object.values(this.musicElements).forEach((el) => {
           if (el && !el.paused) el.pause();
         });
+        if (this.rainAudio && !this.rainAudio.paused) {
+          this.rainAudio.pause();
+        }
       } else {
         this.syncMusicPlayback();
+        this.syncRainPlayback();
       }
     });
   }
@@ -81,6 +104,40 @@ class SoundEngine {
     if (activeEl.paused || this.activeTrack !== targetTrack) {
       this.activeTrack = targetTrack;
       const playPromise = activeEl.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+          // Autoplay blocked until first user interaction; unlock() will retry
+        });
+      }
+    }
+  }
+
+  private syncRainPlayback(): void {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+    const sfxDisabled = this.muted || this.sfxMuted || this.masterVolume <= 0;
+    const shouldPlay = this.desiredRainActive && !sfxDisabled;
+
+    if (!shouldPlay) {
+      if (this.rainAudio) {
+        if (!this.rainAudio.paused) {
+          this.rainAudio.pause();
+        }
+        if (!this.desiredRainActive) {
+          this.rainAudio.currentTime = 0;
+        }
+      }
+      return;
+    }
+
+    const rainEl = this.ensureRainElement();
+    if (!rainEl) return;
+
+    rainEl.loop = true;
+    rainEl.volume = Math.max(0, Math.min(1, this.desiredRainVolume * this.masterVolume));
+
+    if (rainEl.paused) {
+      const playPromise = rainEl.play();
       if (playPromise && typeof playPromise.catch === 'function') {
         playPromise.catch(() => {
           // Autoplay blocked until first user interaction; unlock() will retry
@@ -147,12 +204,14 @@ class SoundEngine {
     }
     this.syncSfxGain();
     this.syncMusicPlayback();
+    this.syncRainPlayback();
   }
 
   public setMuted(muted: boolean): void {
     this.muted = muted;
     this.syncSfxGain();
     this.syncMusicPlayback();
+    this.syncRainPlayback();
   }
 
   public isMuted(): boolean {
@@ -170,9 +229,16 @@ class SoundEngine {
     this.syncMusicPlayback();
   }
 
+  public setRainAmbience(active: boolean, volume = 0.45): void {
+    this.desiredRainActive = active;
+    this.desiredRainVolume = Math.max(0, Math.min(1, volume));
+    this.syncRainPlayback();
+  }
+
   public unlock(): void {
     this.ensureContext(true);
     this.syncMusicPlayback();
+    this.syncRainPlayback();
   }
 
   public playMeow(pitchScale = 1): void {

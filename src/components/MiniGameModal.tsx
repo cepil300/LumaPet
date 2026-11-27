@@ -8,6 +8,7 @@ interface MiniGameModalProps {
   open: boolean;
   catName: string;
   isRaining?: boolean;
+  happinessFull?: boolean;
   onClose: () => void;
   onComplete: (coinsEarned: number, happinessGain: number) => void;
 }
@@ -26,6 +27,7 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
   open,
   catName,
   isRaining = false,
+  happinessFull = false,
   onClose,
   onComplete,
 }) => {
@@ -87,7 +89,7 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
   if (!open) return null;
 
   const coinsReward = Math.min(24, Math.max(2, Math.round(score / 2)));
-  const happyReward = isRaining ? 30 : 25;
+  const happyReward = happinessFull ? 0 : isRaining ? 30 : 25;
   const cleanCostDisplay = isRaining ? 5 : 3;
 
   const handleCatch = (target: PondTarget) => {
@@ -200,7 +202,7 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
                     Selesai! Skor {score} Poin
                   </h3>
                   <p className="text-xs short:text-[11px] font-bold text-[#6E4423] mt-0.5">
-                    Hadiah: +{coinsReward} Koin · +{happyReward} Bahagia{isRaining ? ' (Hujan +5)' : ''} · -10 Energi · -5 Kenyang · -{cleanCostDisplay} Bersih · +12 XP Ikatan
+                    Hadiah: +{coinsReward} Koin · +{happyReward} Bahagia{!happinessFull && isRaining ? ' (Hujan +5)' : ''} · -10 Energi · -5 Kenyang · -{cleanCostDisplay} Bersih · +12 XP Ikatan
                   </p>
                 </div>
                 <button

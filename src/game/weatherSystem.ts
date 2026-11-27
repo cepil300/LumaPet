@@ -59,7 +59,12 @@ export interface WeatherFxState {
 
 interface HouseWeatherProfile {
   windowPolygons: Array<Array<[number, number]>>;
+  skyPolygons?: Array<Array<[number, number]>>;
   diffusedPolygons?: Array<Array<[number, number]>>;
+  nightShadowPolygons?: Array<{
+    polygons: Array<Array<[number, number]>>;
+    alpha: number;
+  }>;
   sillLines: Array<[[number, number], [number, number]]>;
   hasGlass: boolean;
   rainAngle: number;
@@ -160,38 +165,87 @@ const HOUSE_PROFILES: Record<RoomBackgroundId, HouseWeatherProfile> = {
   },
   tatami: {
     windowPolygons: [
-      // Open engawa bamboo garden doorway
+      // Open engawa bamboo garden doorway down to indoor track sill
       [
-        [0.816, 0.258],
-        [0.958, 0.180],
-        [0.958, 0.805],
-        [0.816, 0.728],
+        [0.816, 0.270],
+        [0.958, 0.194],
+        [0.958, 0.920],
+        [0.816, 0.784],
+      ],
+    ],
+    skyPolygons: [
+      // Open night sky patch above the bamboo fence
+      [
+        [0.878, 0.236],
+        [0.958, 0.194],
+        [0.958, 0.355],
+        [0.875, 0.370],
       ],
     ],
     diffusedPolygons: [
       // Translucent sliding shoji screen left
       [
-        [0.748, 0.225],
-        [0.816, 0.258],
-        [0.816, 0.625],
-        [0.748, 0.605],
+        [0.746, 0.246],
+        [0.814, 0.214],
+        [0.814, 0.635],
+        [0.746, 0.610],
       ],
-      // Upper shoji transom panes
+      // Upper left shoji transom
       [
-        [0.748, 0.085],
-        [0.96, 0.0],
-        [0.96, 0.175],
-        [0.748, 0.215],
+        [0.750, 0.088],
+        [0.814, 0.056],
+        [0.814, 0.155],
+        [0.750, 0.175],
       ],
+      // Upper right shoji transom
+      [
+        [0.814, 0.056],
+        [0.958, 0.0],
+        [0.958, 0.072],
+        [0.814, 0.155],
+      ],
+      // Far-right sliding shoji door
+      [
+        [0.964, 0.084],
+        [1.0, 0.062],
+        [1.0, 0.758],
+        [0.964, 0.728],
+      ],
+    ],
+    nightShadowPolygons: [
+      // Outdoor engawa porch eave soffit (shaded wood under roof overhang)
+      {
+        polygons: [
+          [
+            [0.815, 0.214],
+            [0.958, 0.105],
+            [0.958, 0.194],
+            [0.815, 0.272],
+          ],
+        ],
+        alpha: 0.54,
+      },
+      // Neutralize daytime doorway sunlight streak on indoor tatami mats at night
+      {
+        polygons: [
+          [
+            [0.582, 0.768],
+            [0.812, 0.768],
+            [0.892, 0.922],
+            [0.562, 0.922],
+          ],
+        ],
+        alpha: 0.22,
+      },
     ],
     sillLines: [
       [
-        [0.818, 0.722],
-        [0.956, 0.796],
+        [0.822, 0.780],
+        [0.954, 0.906],
       ],
       [
-        [0.835, 0.665],
-        [0.942, 0.715],
+        [0.832, 0.695],
+        [0.946, 0.762],
       ],
     ],
     hasGlass: false,
@@ -199,14 +253,14 @@ const HOUSE_PROFILES: Record<RoomBackgroundId, HouseWeatherProfile> = {
     sunOrigin: { nx: 0.89, ny: 0.22 },
     sunSpreadPolygons: [
       [
-        [0.816, 0.26],
-        [0.958, 0.19],
-        [0.84, 0.96],
-        [0.50, 0.94],
+        [0.816, 0.27],
+        [0.958, 0.195],
+        [0.89, 0.93],
+        [0.54, 0.93],
       ],
     ],
-    lampPos: { nx: 0.213, ny: 0.595 },
-    gardenFirefliesArea: { minX: 0.822, maxX: 0.952, minY: 0.34, maxY: 0.72 },
+    lampPos: { nx: 0.213, ny: 0.625 },
+    gardenFirefliesArea: { minX: 0.824, maxX: 0.946, minY: 0.36, maxY: 0.68 },
   },
 };
 
@@ -412,16 +466,140 @@ export function drawRoomWeatherBackdrop(
     ctx.fillRect(0, 0, viewW, viewH);
   }
 
-  // 2. House-specific window / outdoor weather effects (clipped to this house's openings)
+  // 1b. House-specific night shadow masks (e.g. Tatami outdoor porch eave & daytime sun patch)
+  if (nightWeight > 0.01 && profile.nightShadowPolygons) {
+    for (const shadowLayer of profile.nightShadowPolygons) {
+      ctx.save();
+      buildPolygonsPath(ctx, shadowLayer.polygons, rt);
+      ctx.clip();
+      ctx.fillStyle = `rgba(10, 20, 42, ${(shadowLayer.alpha * nightWeight).toFixed(3)})`;
+      ctx.fillRect(0, 0, viewW, viewH);
+      ctx.restore();
+    }
+  }
+
+  // 2. Night sky, stars, city lights / garden fireflies & shoji darkening (drawn before rain particles)
+  if (nightWeight > 0.01) {
+    ctx.save();
+    buildPolygonsPath(ctx, profile.windowPolygons, rt);
+    ctx.clip();
+
+    if (activeBackground === 'tatami') {
+      // Tatami has a bright sunny sky, bamboo garden, and sunlit engawa deck —
+      // darken with a cool nocturnal vertical gradient so outdoor night depth feels natural.
+      const topPt = roomToScreen(0.89, 0.19, rt);
+      const botPt = roomToScreen(0.89, 0.92, rt);
+      const outdoorGrad = ctx.createLinearGradient(topPt.x, topPt.y, botPt.x, botPt.y);
+      outdoorGrad.addColorStop(0, `rgba(6, 14, 34, ${(0.88 * nightWeight).toFixed(3)})`);
+      outdoorGrad.addColorStop(0.42, `rgba(8, 18, 40, ${(0.83 * nightWeight).toFixed(3)})`);
+      outdoorGrad.addColorStop(0.75, `rgba(9, 20, 44, ${(0.78 * nightWeight).toFixed(3)})`);
+      outdoorGrad.addColorStop(1, `rgba(12, 22, 46, ${(0.72 * nightWeight).toFixed(3)})`);
+      ctx.fillStyle = outdoorGrad;
+      ctx.fillRect(0, 0, viewW, viewH);
+
+      // Soft cool moonlight bloom in the upper bamboo sky so silhouettes retain depth
+      if (rainWeight < 0.95) {
+        const moonPt = roomToScreen(0.92, 0.25, rt);
+        const moonGlow = ctx.createRadialGradient(
+          moonPt.x,
+          moonPt.y,
+          6,
+          moonPt.x,
+          moonPt.y,
+          170 * s
+        );
+        const moonAlpha = 0.10 * nightWeight * (1 - rainWeight * 0.75);
+        moonGlow.addColorStop(0, `rgba(147, 197, 253, ${moonAlpha.toFixed(3)})`);
+        moonGlow.addColorStop(1, 'rgba(147, 197, 253, 0)');
+        ctx.fillStyle = moonGlow;
+        ctx.fillRect(0, 0, viewW, viewH);
+      }
+    } else {
+      ctx.fillStyle = `rgba(11, 22, 48, ${(0.56 * nightWeight).toFixed(3)})`;
+      ctx.fillRect(0, 0, viewW, viewH);
+    }
+
+    // Twinkling stars (clipped to skyPolygons when defined, and dimmed in rain)
+    const starVis = nightWeight * (1 - rainWeight * 0.88);
+    if (starVis > 0.02) {
+      ctx.save();
+      if (profile.skyPolygons && profile.skyPolygons.length > 0) {
+        buildPolygonsPath(ctx, profile.skyPolygons, rt);
+        ctx.clip();
+      }
+      for (let i = 0; i < fx.stars.length; i++) {
+        const st = fx.stars[i];
+        const sp = roomToScreen(st.nx, st.ny, rt);
+        const twinkle = (0.45 + 0.55 * Math.sin(fx.time * 2.4 + st.phase)) * starVis;
+        ctx.fillStyle = `rgba(254, 249, 195, ${twinkle.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, st.size * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // Apartment: warm lit skyline building windows at night
+    if (profile.cityLightsArea) {
+      const area = profile.cityLightsArea;
+      for (let i = 0; i < 22; i++) {
+        const lx = area.minX + ((i * 73) % 100) / 100 * (area.maxX - area.minX);
+        const ly = area.minY + ((i * 41) % 100) / 100 * (area.maxY - area.minY);
+        const lp = roomToScreen(lx, ly, rt);
+        const flicker = 0.55 + 0.35 * Math.sin(fx.time * 1.2 + i);
+        ctx.fillStyle = `rgba(253, 224, 71, ${(flicker * nightWeight).toFixed(3)})`;
+        ctx.fillRect(lp.x, lp.y, 4.2 * s, 3.0 * s);
+      }
+    }
+
+    // Tatami: gentle drifting fireflies in bamboo garden at night
+    if (profile.gardenFirefliesArea) {
+      const area = profile.gardenFirefliesArea;
+      const fireflyVis = nightWeight * (1 - rainWeight * 0.65);
+      if (fireflyVis > 0.02) {
+        for (let i = 0; i < 8; i++) {
+          const fxNx =
+            area.minX +
+            (area.maxX - area.minX) * (0.2 + 0.6 * (0.5 + 0.5 * Math.sin(fx.time * 0.7 + i * 1.7)));
+          const fxNy =
+            area.minY +
+            (area.maxY - area.minY) * (0.2 + 0.6 * (0.5 + 0.5 * Math.cos(fx.time * 0.9 + i * 2.3)));
+          const fp = roomToScreen(fxNx, fxNy, rt);
+          const glowA = (0.45 + 0.55 * Math.sin(fx.time * 3.1 + i)) * fireflyVis;
+          ctx.fillStyle = `rgba(217, 249, 157, ${glowA.toFixed(3)})`;
+          ctx.beginPath();
+          ctx.arc(fp.x, fp.y, 2.8 * s, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    ctx.restore();
+
+    if (profile.diffusedPolygons && profile.diffusedPolygons.length > 0) {
+      ctx.save();
+      buildPolygonsPath(ctx, profile.diffusedPolygons, rt);
+      ctx.clip();
+      const shojiAlpha = (activeBackground === 'tatami' ? 0.68 : 0.34) * nightWeight;
+      ctx.fillStyle = `rgba(10, 20, 44, ${shojiAlpha.toFixed(3)})`;
+      ctx.fillRect(0, 0, viewW, viewH);
+      ctx.restore();
+    }
+  }
+
+  // 3. House-specific window / outdoor rain effects (clipped to this house's openings)
   if (rainWeight > 0.01) {
     // Main open windows / garden view
     ctx.save();
     buildPolygonsPath(ctx, profile.windowPolygons, rt);
     ctx.clip();
 
-    // Overcast storm sky tint inside windows
-    ctx.fillStyle = `rgba(36, 62, 92, ${(0.42 * rainWeight).toFixed(3)})`;
-    ctx.fillRect(0, 0, viewW, viewH);
+    // Overcast storm sky tint inside windows (softened at night so it doesn't wash out night darkness)
+    const stormTintAlpha = 0.42 * rainWeight * (1 - nightWeight * 0.55);
+    if (stormTintAlpha > 0.01) {
+      ctx.fillStyle = `rgba(36, 62, 92, ${stormTintAlpha.toFixed(3)})`;
+      ctx.fillRect(0, 0, viewW, viewH);
+    }
 
     if (fx.lightningFlash > 0.01) {
       ctx.fillStyle = `rgba(224, 242, 254, ${(0.55 * fx.lightningFlash * rainWeight).toFixed(3)})`;
@@ -493,8 +671,11 @@ export function drawRoomWeatherBackdrop(
       ctx.save();
       buildPolygonsPath(ctx, profile.diffusedPolygons, rt);
       ctx.clip();
-      ctx.fillStyle = `rgba(42, 68, 98, ${(0.28 * rainWeight).toFixed(3)})`;
-      ctx.fillRect(0, 0, viewW, viewH);
+      const diffusedStormAlpha = 0.28 * rainWeight * (1 - nightWeight * 0.55);
+      if (diffusedStormAlpha > 0.01) {
+        ctx.fillStyle = `rgba(42, 68, 98, ${diffusedStormAlpha.toFixed(3)})`;
+        ctx.fillRect(0, 0, viewW, viewH);
+      }
       for (let i = 0; i < fx.rainDrops.length; i += 2) {
         const d = fx.rainDrops[i];
         const p1 = roomToScreen(d.nx, d.ny, rt);
@@ -506,70 +687,6 @@ export function drawRoomWeatherBackdrop(
         ctx.lineTo(p2.x, p2.y);
         ctx.stroke();
       }
-      ctx.restore();
-    }
-  }
-
-  // Night sky, stars, city lights / garden fireflies inside house windows
-  if (nightWeight > 0.01) {
-    ctx.save();
-    buildPolygonsPath(ctx, profile.windowPolygons, rt);
-    ctx.clip();
-
-    ctx.fillStyle = `rgba(11, 22, 48, ${(0.56 * nightWeight).toFixed(3)})`;
-    ctx.fillRect(0, 0, viewW, viewH);
-
-    // Twinkling stars
-    for (let i = 0; i < fx.stars.length; i++) {
-      const st = fx.stars[i];
-      const sp = roomToScreen(st.nx, st.ny, rt);
-      const twinkle = (0.45 + 0.55 * Math.sin(fx.time * 2.4 + st.phase)) * nightWeight;
-      ctx.fillStyle = `rgba(254, 249, 195, ${twinkle.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(sp.x, sp.y, st.size * s, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Apartment: warm lit skyline building windows at night
-    if (profile.cityLightsArea) {
-      const area = profile.cityLightsArea;
-      for (let i = 0; i < 22; i++) {
-        const lx = area.minX + ((i * 73) % 100) / 100 * (area.maxX - area.minX);
-        const ly = area.minY + ((i * 41) % 100) / 100 * (area.maxY - area.minY);
-        const lp = roomToScreen(lx, ly, rt);
-        const flicker = 0.55 + 0.35 * Math.sin(fx.time * 1.2 + i);
-        ctx.fillStyle = `rgba(253, 224, 71, ${(flicker * nightWeight).toFixed(3)})`;
-        ctx.fillRect(lp.x, lp.y, 4.2 * s, 3.0 * s);
-      }
-    }
-
-    // Tatami: gentle drifting fireflies in bamboo garden at night
-    if (profile.gardenFirefliesArea) {
-      const area = profile.gardenFirefliesArea;
-      for (let i = 0; i < 8; i++) {
-        const fxNx =
-          area.minX +
-          (area.maxX - area.minX) * (0.2 + 0.6 * (0.5 + 0.5 * Math.sin(fx.time * 0.7 + i * 1.7)));
-        const fxNy =
-          area.minY +
-          (area.maxY - area.minY) * (0.2 + 0.6 * (0.5 + 0.5 * Math.cos(fx.time * 0.9 + i * 2.3)));
-        const fp = roomToScreen(fxNx, fxNy, rt);
-        const glowA = (0.45 + 0.55 * Math.sin(fx.time * 3.1 + i)) * nightWeight;
-        ctx.fillStyle = `rgba(217, 249, 157, ${glowA.toFixed(3)})`;
-        ctx.beginPath();
-        ctx.arc(fp.x, fp.y, 2.8 * s, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    ctx.restore();
-
-    if (profile.diffusedPolygons && profile.diffusedPolygons.length > 0) {
-      ctx.save();
-      buildPolygonsPath(ctx, profile.diffusedPolygons, rt);
-      ctx.clip();
-      ctx.fillStyle = `rgba(15, 28, 56, ${(0.34 * nightWeight).toFixed(3)})`;
-      ctx.fillRect(0, 0, viewW, viewH);
       ctx.restore();
     }
   }

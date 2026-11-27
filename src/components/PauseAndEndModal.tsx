@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  ArrowLeft,
   CheckCircle2,
   Loader2,
   LogOut,
@@ -11,19 +10,14 @@ import {
   CatHudSnapshot,
   GameSettings,
   GameState,
-  HungerSpeed,
   LIFE_STAGES,
 } from '../types/game';
-import {
-  CareNotificationPermission,
-  getCareNotificationPermission,
-  requestCareNotificationPermission,
-} from '../utils/catCareSystem';
 import {
   GhostCatSvg,
   OrnateCornerFlourishes,
   ShopShirtTabIcon,
 } from './CuteGameIcons';
+import { SettingsModalContent } from './SettingsModalContent';
 import {
   CatEarsHeaderPlaque,
   CatPortraitMedallion,
@@ -55,14 +49,6 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
   onReturnToTitle,
 }) => {
   const [showSettings, setShowSettings] = useState(false);
-  const [notifPerm, setNotifPerm] = useState<CareNotificationPermission>(() =>
-    getCareNotificationPermission()
-  );
-
-  const handleRequestNotif = async () => {
-    const res = await requestCareNotificationPermission();
-    setNotifPerm(res);
-  };
 
   if (gameState !== 'PAUSED' && gameState !== 'GAME_OVER') return null;
 
@@ -116,152 +102,11 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
               <OrnateCornerFlourishes className="short:w-3 short:h-3" />
 
               {showSettings && !isGameOver ? (
-                <div className="space-y-3 short:space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs short:text-[11px] font-bold text-[#7A4928]">
-                      Sesuaikan suara, laju lapar & notifikasi
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setShowSettings(false)}
-                      className="inline-flex items-center gap-1 text-xs font-bold text-[#5A2D12] py-1.5 px-2.5 rounded-lg bg-[#FFFDF8] border-2 border-[#7A4928]/40 hover:bg-[#FDECC8] cursor-pointer"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Kembali</span>
-                    </button>
-                  </div>
-
-                  <div className="p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#8C582E]/35 space-y-2 short:space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Volume Suara</p>
-                        <p className="text-xs short:text-[10px] text-[#7A4928]">
-                          Atur persentase besar kecil suara game
-                        </p>
-                      </div>
-                      <span className="px-2.5 py-1 rounded-lg bg-[#FFF3D9] border border-[#8C582E]/35 text-xs font-extrabold text-[#5A2D12] tabular-nums">
-                        {settings.volume}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={settings.volume}
-                      onChange={(e) => onUpdateSettings({ volume: Number(e.target.value) })}
-                      aria-label="Persentase volume suara"
-                      className="w-full h-2.5 rounded-full bg-[#EFE2C8] accent-[#2D6A4F] cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 short:grid-cols-2 gap-2.5 short:gap-2">
-                    <div className="flex items-center justify-between gap-2 p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#8C582E]/35">
-                      <div className="min-w-0">
-                        <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Efek Suara (SFX)</p>
-                        <p className="text-[11px] short:text-[10px] text-[#7A4928] leading-tight">
-                          Meong, dengkuran &amp; mainan
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onUpdateSettings({ sfxMuted: !settings.sfxMuted })}
-                        className={`px-3 py-1.5 min-h-[38px] rounded-lg text-xs font-bold border-2 transition-colors whitespace-nowrap cursor-pointer shrink-0 ${
-                          settings.sfxMuted
-                            ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#5B6B63]'
-                            : 'bg-[#2D6A4F] border-[#1B4332] text-white'
-                        }`}
-                      >
-                        {settings.sfxMuted ? 'Mati' : 'Aktif'}
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#8C582E]/35">
-                      <div className="min-w-0">
-                        <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Musik Latar</p>
-                        <p className="text-[11px] short:text-[10px] text-[#7A4928] leading-tight">
-                          Musik menu &amp; dalam game
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onUpdateSettings({ musicMuted: !settings.musicMuted })}
-                        className={`px-3 py-1.5 min-h-[38px] rounded-lg text-xs font-bold border-2 transition-colors whitespace-nowrap cursor-pointer shrink-0 ${
-                          settings.musicMuted
-                            ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#5B6B63]'
-                            : 'bg-[#2D6A4F] border-[#1B4332] text-white'
-                        }`}
-                      >
-                        {settings.musicMuted ? 'Mati' : 'Aktif'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#8C582E]/35">
-                    <p className="text-sm short:text-xs font-bold text-[#5A2D12] mb-2 short:mb-1.5">
-                      Laju Rasa Lapar
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['santai', 'normal'] as HungerSpeed[]).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => onUpdateSettings({ hungerSpeed: mode })}
-                          className={`px-3 py-2 short:py-1.5 min-h-[38px] rounded-lg text-xs font-bold border-2 transition-colors cursor-pointer ${
-                            settings.hungerSpeed === mode
-                              ? 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722]'
-                              : 'bg-[#FAF8F2] border-[#8C582E]/25 text-[#7A4928]'
-                          }`}
-                        >
-                          {mode === 'santai' ? 'Santai (Sangat Lama)' : 'Normal (Lama)'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 p-3 short:p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#8C582E]/35">
-                    <div>
-                      <p className="text-sm short:text-xs font-bold text-[#5A2D12]">
-                        Notifikasi Makan
-                      </p>
-                      <p className="text-xs short:text-[10px] text-[#7A4928]">
-                        Ingatkan saat kenyang di bawah 40%
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={
-                        notifPerm === 'granted' ||
-                        notifPerm === 'denied' ||
-                        notifPerm === 'unsupported'
-                      }
-                      onClick={handleRequestNotif}
-                      className={`px-3.5 py-2 min-h-[38px] rounded-lg text-xs font-bold border-2 transition-colors whitespace-nowrap ${
-                        notifPerm === 'granted'
-                          ? 'bg-[#2D6A4F] border-[#1B4332] text-white cursor-default'
-                          : notifPerm === 'denied' || notifPerm === 'unsupported'
-                          ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#5B6B63] cursor-not-allowed'
-                          : 'bg-[#FFF3D9] border-[#7A4928] text-[#5A2D12] hover:bg-[#FDE68A] cursor-pointer'
-                      }`}
-                    >
-                      {notifPerm === 'granted'
-                        ? 'Aktif'
-                        : notifPerm === 'denied'
-                        ? 'Diblokir'
-                        : notifPerm === 'unsupported'
-                        ? 'Tidak Didukung'
-                        : 'Izinkan'}
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowSettings(false)}
-                    className="w-full px-5 py-2.5 short:py-2 min-h-[44px] short:min-h-[38px] rounded-xl bg-gradient-to-b from-[#458E53] to-[#2B6639] border-2 border-[#1E4627] shadow-[inset_0_2px_0_#78C785,0_3px_0_#1E4627] text-white font-display font-extrabold text-sm hover:brightness-105 transition-all cursor-pointer"
-                  >
-                    Selesai
-                  </button>
-                </div>
+                <SettingsModalContent
+                  settings={settings}
+                  onUpdateSettings={onUpdateSettings}
+                  onClose={() => setShowSettings(false)}
+                />
               ) : (
                 <>
                   {isGameOver && (

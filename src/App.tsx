@@ -4,14 +4,17 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { RotateCw } from 'lucide-react';
 import { soundEngine } from './audio/soundEngine';
 import { DevTestingPanel } from './components/DevTestingPanel';
 import { GameHud } from './components/GameHud';
 import { LifeStageModal } from './components/LifeStageModal';
 import { MiniGameModal } from './components/MiniGameModal';
+import { OpeningSplash } from './components/OpeningSplash';
 import { AutoSaveStatus, PauseAndEndModal } from './components/PauseAndEndModal';
 import { ShopDrawer } from './components/ShopDrawer';
 import { TitleScreen } from './components/TitleScreen';
+import { UiEditorTool } from './components/UiEditorTool';
 import { CatStageCanvas, CatStageHandle } from './game/CatStageCanvas';
 import {
   BathItemId,
@@ -136,15 +139,25 @@ function readSettings(): GameSettings {
       sfxMuted,
       musicMuted,
       volume,
-      hungerSpeed: parsed.hungerSpeed === 'normal' ? 'normal' : 'santai',
+      hungerSpeed: DEFAULT_SETTINGS.hungerSpeed,
     };
   } catch {
     return DEFAULT_SETTINGS;
   }
 }
 
+function checkTouchPortrait(): boolean {
+  if (typeof window === 'undefined') return false;
+  const isCoarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const isAndroidUa = /android/i.test(navigator.userAgent || '');
+  return (isCoarse || isAndroidUa) && window.innerHeight > window.innerWidth;
+}
+
 export default function App() {
   const stageRef = useRef<CatStageHandle | null>(null);
+  const [openingDone, setOpeningDone] = useState(false);
+  const [appClosed, setAppClosed] = useState(false);
+  const [isTouchPortrait, setIsTouchPortrait] = useState<boolean>(() => checkTouchPortrait());
   const [gameState, setGameState] = useState<GameState>('TITLE_MENU');
   const [selectedBreed, setSelectedBreed] = useState<CatBreed>('oren');
   const [toolMode, setToolMode] = useState<ToolMode>('PET');
@@ -245,6 +258,25 @@ export default function App() {
     setGameState('PLAYING');
     soundEngine.playMeow(1.0);
   }, [existingSave]);
+
+  const handleQuitApp = useCallback(() => {
+    soundEngine.stopMusic();
+    soundEngine.setRainAmbience(false);
+    const capApp = (
+      window as unknown as {
+        Capacitor?: { Plugins?: { App?: { exitApp?: () => void } } };
+      }
+    ).Capacitor?.Plugins?.App;
+    if (capApp?.exitApp) {
+      capApp.exitApp();
+    }
+    try {
+      window.close();
+    } catch {
+      // Ignore if browser blocks script close
+    }
+    setAppClosed(true);
+  }, []);
 
   const handleFeedItem = useCallback(
     (foodId: FoodItemId) => {
@@ -439,6 +471,10 @@ export default function App() {
   }, [gameState, persistProgress]);
 
   useEffect(() => {
+    if (!openingDone || appClosed) {
+      soundEngine.stopMusic();
+      return;
+    }
     if (gameState === 'TITLE_MENU') {
       soundEngine.playMusic('menu', 0.38);
     } else if (gameState === 'PLAYING') {
@@ -448,15 +484,41 @@ export default function App() {
     } else {
       soundEngine.stopMusic();
     }
-  }, [gameState]);
+  }, [gameState, openingDone, appClosed]);
 
   useEffect(() => {
+    const isRainPlayable =
+      openingDone &&
+      !appClosed &&
+      hud.weather === 'hujan' &&
+      (gameState === 'PLAYING' || gameState === 'PAUSED');
+    if (isRainPlayable) {
+      soundEngine.setRainAmbience(true, gameState === 'PAUSED' ? 0.18 : 0.45);
+    } else {
+      soundEngine.setRainAmbience(false);
+    }
+  }, [hud.weather, gameState, openingDone, appClosed]);
+
+  useEffect(() => {
+    const tryLockLandscape = () => {
+      const orient = screen.orientation as
+        | (ScreenOrientation & { lock?: (orientation: string) => Promise<void> })
+        | undefined;
+      orient?.lock?.('landscape')?.catch(() => {});
+      setIsTouchPortrait(checkTouchPortrait());
+    };
+    tryLockLandscape();
+    window.addEventListener('resize', tryLockLandscape);
+    window.addEventListener('orientationchange', tryLockLandscape);
     const handleFirstGesture = () => {
       soundEngine.unlock();
+      tryLockLandscape();
     };
     window.addEventListener('pointerdown', handleFirstGesture, { passive: true });
     window.addEventListener('keydown', handleFirstGesture, { passive: true });
     return () => {
+      window.removeEventListener('resize', tryLockLandscape);
+      window.removeEventListener('orientationchange', tryLockLandscape);
       window.removeEventListener('pointerdown', handleFirstGesture);
       window.removeEventListener('keydown', handleFirstGesture);
     };
@@ -518,7 +580,6 @@ export default function App() {
         !hud.isSick &&
         hud.energy > 20 &&
         hud.hunger > 2 &&
-        hud.happiness < 100 &&
         hud.cooldownsSec.interactivePlay === 0;
 
       if (e.key === '1') {
@@ -561,7 +622,6 @@ export default function App() {
     hud.isSick,
     hud.energy,
     hud.hunger,
-    hud.happiness,
     hud.cooldownsSec.interactivePlay,
     persistProgress,
     handleFeedItem,
@@ -586,7 +646,7 @@ export default function App() {
         onAutoSaveNeeded={persistProgress}
       />
 
-      {gameState === 'TITLE_MENU' && (
+      {gameState === 'TITLE_MENU' && !appClosed && (
         <TitleScreen
           selectedBreed={selectedBreed}
           onSelectBreed={setSelectedBreed}
@@ -596,6 +656,7 @@ export default function App() {
           onClearSave={handleClearSave}
           onStartNew={handleStartNew}
           onContinueSave={handleContinueSave}
+          onQuitApp={handleQuitApp}
         />
       )}
 
@@ -607,9 +668,7 @@ export default function App() {
             shopOpen={shopOpen}
             onSelectTool={setToolMode}
             onFeedItem={handleFeedItem}
-            onBuyFoodItem={handleBuyFoodItem}
             onUseBathItem={handleUseBathItem}
-            onBuyBathItem={handleBuyBathItem}
             onStartSleep={handleStartSleep}
             onWakeUp={handleWakeUp}
             onStartInteractivePlay={handleStartInteractivePlay}
@@ -646,6 +705,7 @@ export default function App() {
             open={miniGameOpen}
             catName={hud.name}
             isRaining={hud.weather === 'hujan'}
+            happinessFull={hud.happiness >= 100}
             onClose={() => setMiniGameOpen(false)}
             onComplete={handleMiniGameComplete}
           />
@@ -674,6 +734,48 @@ export default function App() {
         onRestartSameCat={handleRestartSameCat}
         onReturnToTitle={handleReturnToTitle}
       />
+
+      {openingDone && !appClosed && <UiEditorTool gameState={gameState} />}
+
+      {!openingDone && !appClosed && (
+        <OpeningSplash onFinish={() => setOpeningDone(true)} />
+      )}
+
+      {appClosed && (
+        <div className="fixed inset-0 z-[110] bg-[#16201C] text-[#FFFDF7] flex flex-col items-center justify-center p-6 text-center gap-4">
+          <img
+            src="/assets/ui/lumapet_logo.png"
+            alt="LumaPet"
+            className="h-16 w-auto object-contain opacity-90"
+            draggable={false}
+          />
+          <div>
+            <h2 className="font-display text-xl font-extrabold">Aplikasi Telah Ditutup</h2>
+            <p className="text-sm text-[#D1DCD6] mt-1">
+              Terima kasih sudah bermain LumaPet. Kamu dapat menutup halaman ini.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAppClosed(false)}
+            className="px-5 py-2.5 rounded-xl bg-[#2D6A4F] border-2 border-[#74C69D]/50 text-white font-display font-bold text-sm hover:brightness-110 cursor-pointer"
+          >
+            Buka Kembali
+          </button>
+        </div>
+      )}
+
+      {isTouchPortrait && !appClosed && (
+        <div className="fixed inset-0 z-[120] bg-[#16201C]/98 text-[#FFFDF7] flex flex-col items-center justify-center p-6 text-center gap-4">
+          <RotateCw className="w-12 h-12 text-[#FBBF24] animate-spin" style={{ animationDuration: '4s' }} />
+          <div>
+            <h2 className="font-display text-xl font-extrabold">Mode Lanskap Diperlukan</h2>
+            <p className="text-sm text-[#D1DCD6] mt-1 max-w-xs">
+              Putar perangkat Anda ke posisi miring (Landscape) untuk memainkan LumaPet.
+            </p>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

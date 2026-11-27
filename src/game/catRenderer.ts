@@ -657,18 +657,28 @@ export function drawCat(
   cat: CatRenderState,
   rt: RoomTransform,
   spriteSheets: Partial<Record<CatBreed, HTMLImageElement>>,
-  babySpriteSheets?: Partial<Record<CatBreed, HTMLImageElement>>
+  babySpriteSheets?: Partial<Record<CatBreed, HTMLImageElement>>,
+  childSpriteSheets?: Partial<Record<CatBreed, HTMLImageElement>>
 ): void {
   const screenPos = roomToScreen(cat.nx, cat.ny, rt);
   const s = Math.max(0.43, rt.scale * 0.72);
   const jumpPx = cat.z * rt.drawH;
   const stage: LifeStage = cat.lifeStage ?? 'adult';
   const isBabyStage = stage === 'baby';
+  const isChildStage = stage === 'child';
   const babySheet = babySpriteSheets?.[cat.breed];
+  const childSheet = childSpriteSheets?.[cat.breed];
   const hasBabySheet = Boolean(
     isBabyStage && babySheet && babySheet.complete && babySheet.naturalWidth > 0
   );
-  const sheet = hasBabySheet ? babySheet : spriteSheets[cat.breed];
+  const hasChildSheet = Boolean(
+    isChildStage && childSheet && childSheet.complete && childSheet.naturalWidth > 0
+  );
+  const sheet = hasBabySheet
+    ? babySheet
+    : hasChildSheet
+    ? childSheet
+    : spriteSheets[cat.breed];
 
   const isDrowsyHeavy =
     !cat.isSick &&
@@ -766,7 +776,7 @@ export function drawCat(
     s * (cat.scaleY * sickDroopY - rumbleScale * 0.7)
   );
 
-  if (stage === 'child' || (isBabyStage && !hasBabySheet)) {
+  if ((isChildStage && !hasChildSheet) || (isBabyStage && !hasBabySheet)) {
     drawKittenStageCat(ctx, cat, stage);
     ctx.restore();
     return;
@@ -775,6 +785,8 @@ export function drawCat(
   if (sheet && sheet.complete && sheet.naturalWidth > 0) {
     const stageScaleX = isBabyStage
       ? 0.84
+      : isChildStage
+      ? 0.9
       : stage === 'teen'
       ? 0.84
       : stage === 'senior'
@@ -782,6 +794,8 @@ export function drawCat(
       : 1;
     const stageScaleY = isBabyStage
       ? 0.84
+      : isChildStage
+      ? 0.9
       : stage === 'teen'
       ? 0.88
       : stage === 'senior'
@@ -830,8 +844,14 @@ export function drawCat(
       drawCatSeniorFeatures(ctx, row, col, cat.time);
     }
 
+    const anchorStage: 'baby' | 'child' | 'adult' = isBabyStage
+      ? 'baby'
+      : isChildStage
+      ? 'child'
+      : 'adult';
+
     if (cat.isSick && cat.behavior !== 'SLEEPING') {
-      drawCatSickExpression(ctx, row, col, cat.breed, cat.time, isBabyStage);
+      drawCatSickExpression(ctx, row, col, cat.breed, cat.time, anchorStage);
     } else if ((isDrowsyHeavy || isDrowsyLight) && cat.behavior !== 'SLEEPING') {
       drawCatTiredExpression(
         ctx,
@@ -840,7 +860,7 @@ export function drawCat(
         cat.breed,
         cat.time,
         isDrowsyHeavy ? 'heavy' : 'light',
-        isBabyStage
+        anchorStage
       );
     }
 
@@ -852,7 +872,7 @@ export function drawCat(
       cat.equippedGlasses ?? 'none',
       cat.equippedScarf ?? 'default',
       cat.time,
-      isBabyStage
+      anchorStage
     );
     ctx.restore();
   } else {
@@ -886,9 +906,10 @@ export function drawCatPortrait(
   ctx.scale(s, s);
 
   const isBaby = lifeStage === 'baby';
+  const isChild = lifeStage === 'child';
   const hasSpriteSheet = Boolean(sheet && sheet.complete && sheet.naturalWidth > 0);
 
-  if (lifeStage === 'child' || (isBaby && !hasSpriteSheet)) {
+  if ((isChild && !hasSpriteSheet) || (isBaby && !hasSpriteSheet)) {
     const scaleBoost = isBaby ? 1.48 : 1.18;
     ctx.save();
     ctx.translate(4, isBaby ? 6 : 2);
@@ -929,9 +950,19 @@ export function drawCatPortrait(
   const row = 4;
   const col = 0;
   if (sheet && sheet.complete && sheet.naturalWidth > 0) {
-    const stageMult = isBaby ? 1.12 : lifeStage === 'teen' ? 0.9 : lifeStage === 'senior' ? 0.97 : 1;
+    const stageMult = isBaby
+      ? 1.12
+      : isChild
+      ? 1.04
+      : lifeStage === 'teen'
+      ? 0.9
+      : lifeStage === 'senior'
+      ? 0.97
+      : 1;
     if (isBaby) {
       ctx.translate(4, -6);
+    } else if (isChild) {
+      ctx.translate(2, -3);
     }
     ctx.scale(stageMult, stageMult);
     const drawW = CELL_W * 0.72;
@@ -955,7 +986,16 @@ export function drawCatPortrait(
     if (lifeStage === 'senior') {
       drawCatSeniorFeatures(ctx, row, col, 0);
     }
-    drawCatAccessories(ctx, row, col, hat, glasses, scarf, 0, isBaby);
+    drawCatAccessories(
+      ctx,
+      row,
+      col,
+      hat,
+      glasses,
+      scarf,
+      0,
+      isBaby ? 'baby' : isChild ? 'child' : 'adult'
+    );
   } else {
     const profile = CAT_BREEDS[breed];
     ctx.fillStyle = profile.primaryColor;
@@ -1634,15 +1674,47 @@ function getBabyAccessoryAnchors(row: number, col: number): CatAccessoryAnchors 
   }
 }
 
+function getStageAccessoryAnchors(
+  row: number,
+  col: number,
+  stageMode: 'baby' | 'child' | 'adult'
+): CatAccessoryAnchors {
+  if (stageMode === 'baby') return getBabyAccessoryAnchors(row, col);
+  if (stageMode === 'adult') return getCatAccessoryAnchors(row, col);
+  const b = getBabyAccessoryAnchors(row, col);
+  const a = getCatAccessoryAnchors(row, col);
+  const lerp = (v1: number, v2: number) => v1 + (v2 - v1) * 0.52;
+  return {
+    hat: {
+      x: lerp(b.hat.x, a.hat.x),
+      y: lerp(b.hat.y, a.hat.y),
+      rot: lerp(b.hat.rot, a.hat.rot),
+      scale: lerp(b.hat.scale, a.hat.scale),
+    },
+    glasses: {
+      x: lerp(b.glasses.x, a.glasses.x),
+      y: lerp(b.glasses.y, a.glasses.y),
+      rot: lerp(b.glasses.rot, a.glasses.rot),
+      scale: lerp(b.glasses.scale, a.glasses.scale),
+    },
+    scarf: {
+      x: lerp(b.scarf.x, a.scarf.x),
+      y: lerp(b.scarf.y, a.scarf.y),
+      rot: lerp(b.scarf.rot, a.scarf.rot),
+      scale: lerp(b.scarf.scale, a.scarf.scale),
+    },
+  };
+}
+
 function drawCatSickExpression(
   ctx: CanvasRenderingContext2D,
   row: number,
   col: number,
   breed: CatBreed,
   time: number,
-  isBaby = false
+  stageMode: 'baby' | 'child' | 'adult' = 'adult'
 ): void {
-  const anchors = isBaby ? getBabyAccessoryAnchors(row, col) : getCatAccessoryAnchors(row, col);
+  const anchors = getStageAccessoryAnchors(row, col, stageMode);
   const a = anchors.glasses;
   const furColor = CAT_BREEDS[breed].primaryColor;
 
@@ -1725,9 +1797,9 @@ function drawCatTiredExpression(
   breed: CatBreed,
   time: number,
   tier: 'light' | 'heavy' = 'heavy',
-  isBaby = false
+  stageMode: 'baby' | 'child' | 'adult' = 'adult'
 ): void {
-  const anchors = isBaby ? getBabyAccessoryAnchors(row, col) : getCatAccessoryAnchors(row, col);
+  const anchors = getStageAccessoryAnchors(row, col, stageMode);
   const a = anchors.glasses;
   const furColor = CAT_BREEDS[breed].primaryColor;
   const isLight = tier === 'light';
@@ -1789,10 +1861,10 @@ function drawCatAccessories(
   glasses: CatGlassesId,
   scarf: CatScarfId,
   time: number,
-  isBaby = false
+  stageMode: 'baby' | 'child' | 'adult' = 'adult'
 ): void {
   if (hat === 'none' && glasses === 'none' && scarf === 'default') return;
-  const anchors = isBaby ? getBabyAccessoryAnchors(row, col) : getCatAccessoryAnchors(row, col);
+  const anchors = getStageAccessoryAnchors(row, col, stageMode);
   drawAccessoryAtAnchors(ctx, anchors, hat, glasses, scarf, time);
 }
 

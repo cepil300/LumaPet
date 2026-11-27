@@ -27,22 +27,43 @@ export const CatAvatarSvg: React.FC<CatAvatarSvgProps> = ({
 }) => {
   const profile = CAT_BREEDS[breed] ?? CAT_BREEDS.oren;
   const isBaby = lifeStage === 'baby';
+  const isChild = lifeStage === 'child';
 
   // Render Idle Frame 0 (row 4, col 0 of 6x8 sprite sheet: 2040x2080, cell 340x260)
-  const cropBox = isBaby ? 210 : 230;
+  const cropBox = isBaby ? 210 : isChild ? 220 : 230;
   const sheetScale = size / cropBox;
   const bgW = Math.round(2040 * sheetScale);
   const bgH = Math.round(2080 * sheetScale);
-  const offsetX = Math.round((isBaby ? -62 : -48) * sheetScale);
-  const offsetY = Math.round(-(4 * 260 + (isBaby ? 54 : 26)) * sheetScale);
+  const offsetX = Math.round((isBaby ? -62 : isChild ? -55 : -48) * sheetScale);
+  const offsetY = Math.round(-(4 * 260 + (isBaby ? 54 : isChild ? 40 : 26)) * sheetScale);
   const hasOverlay = hat !== 'none' || glasses !== 'none' || scarf !== 'default';
-  const spriteUrl = isBaby ? profile.babySpriteSheet : profile.spriteSheet;
+  const spriteUrl = isBaby
+    ? profile.babySpriteSheet
+    : isChild
+    ? profile.childSpriteSheet
+    : profile.spriteSheet;
 
-  const glassesTransform = isBaby ? 'translate(145 81) scale(1.25)' : 'translate(184 81) scale(1.38)';
-  const hatBase = isBaby ? 'translate(142 40)' : 'translate(178 34)';
-  const hatScale = isBaby ? 'scale(1.24)' : 'scale(1.38)';
-  const scarfTransform = isBaby ? 'translate(115 114) scale(1.22)' : 'translate(136 112) scale(1.38)';
-  const bowtieTransform = isBaby ? 'translate(121 118) scale(1.22)' : 'translate(143 116) scale(1.38)';
+  const glassesTransform = isBaby
+    ? 'translate(145 81) scale(1.25)'
+    : isChild
+    ? 'translate(158 80) scale(1.3)'
+    : 'translate(184 81) scale(1.38)';
+  const hatBase = isBaby
+    ? 'translate(142 40)'
+    : isChild
+    ? 'translate(154 36)'
+    : 'translate(178 34)';
+  const hatScale = isBaby ? 'scale(1.24)' : isChild ? 'scale(1.3)' : 'scale(1.38)';
+  const scarfTransform = isBaby
+    ? 'translate(115 114) scale(1.22)'
+    : isChild
+    ? 'translate(122 115) scale(1.28)'
+    : 'translate(136 112) scale(1.38)';
+  const bowtieTransform = isBaby
+    ? 'translate(121 118) scale(1.22)'
+    : isChild
+    ? 'translate(128 119) scale(1.28)'
+    : 'translate(143 116) scale(1.38)';
 
   return (
     <div

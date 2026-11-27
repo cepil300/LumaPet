@@ -98,6 +98,8 @@ export const CatPortraitMedallion: React.FC<CatPortraitMedallionProps> = ({
     img.src =
       lifeStage === 'baby'
         ? CAT_BREEDS[breed].babySpriteSheet
+        : lifeStage === 'child'
+        ? CAT_BREEDS[breed].childSpriteSheet
         : CAT_BREEDS[breed].spriteSheet;
 
     const render = () => {

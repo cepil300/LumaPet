@@ -142,13 +142,19 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                     }`}
                   >
                     <div className="w-16 h-16 sm:w-18 sm:h-18 short:w-12 short:h-12 rounded-xl overflow-hidden border-2 border-[#7A4928]/40 bg-[#FFF7E2] flex items-center justify-center mb-1.5 short:mb-1 shrink-0">
-                      {stageKey === 'baby' || !meta.imgSrc ? (
+                      {stageKey === 'baby' || stageKey === 'child' || !meta.imgSrc ? (
                         <CatPortraitMedallion
                           breed={hud.breed}
                           hat={hud.equippedHat}
                           glasses={hud.equippedGlasses}
                           scarf={hud.equippedScarf}
-                          lifeStage={stageKey === 'baby' ? 'baby' : 'adult'}
+                          lifeStage={
+                            stageKey === 'baby'
+                              ? 'baby'
+                              : stageKey === 'child'
+                              ? 'child'
+                              : 'adult'
+                          }
                           className="w-full h-full !p-0.5 !border-0 !shadow-none"
                         />
                       ) : (
