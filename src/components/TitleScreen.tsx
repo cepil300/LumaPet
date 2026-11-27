@@ -481,7 +481,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                   <div>
                     <p className="text-sm short:text-xs font-bold text-[#5A2D12]">Notifikasi Makan</p>
                     <p className="text-xs short:text-[11px] text-[#7A4928]">
-                      Ingatkan saat kenyang tinggal 20%
+                      Ingatkan saat kenyang di bawah 40%
                     </p>
                   </div>
                   <button

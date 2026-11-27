@@ -6,7 +6,11 @@ import React, {
 } from 'react';
 import { soundEngine } from '../audio/soundEngine';
 import {
+  ACTION_DELTAS,
   AdultEvolutionBranch,
+  AUTO_SLEEP_CONFIG,
+  BATH_ITEMS,
+  BathItemId,
   BowlTreatType,
   CAT_ACCESSORIES,
   CAT_BEDS,
@@ -23,21 +27,43 @@ import {
   CatScarfId,
   CatToyId,
   CatToyOption,
+  ConsumableInventory,
+  DayPhase,
+  DeathReason,
+  DevQuickAction,
+  DevStatePatch,
+  DevTimeScale,
+  DrowsyStage,
+  FOOD_ITEMS,
+  FoodItemId,
   GameState,
   HungerSpeed,
+  INITIAL_INVENTORY,
   LIFE_STAGES,
   LifeStage,
+  ManualSleepMode,
+  OVERWORK_SICK_SECONDS,
   ROOM_BACKGROUNDS,
   RoomBackgroundId,
+  SLEEP_OPTIONS,
   SaveData,
   ShopItem,
+  SleepMode,
   ToolMode,
   WeatherType,
 } from '../types/game';
 import {
   calculateOfflineDecay,
   clearLowHungerNotificationSchedule,
-  OFFLINE_HUNGER_DECAY_PER_SEC,
+  computeCalendarDayAndHour,
+  GAME_HOURS_PER_REAL_SEC,
+  getDayPhaseFromHour,
+  getDayPhaseMultipliers,
+  getDrowsyStage,
+  getStageDecayRatesPerSec,
+  getWeatherMultipliers,
+  INITIAL_GAME_HOUR,
+  isDuskHour,
   resetLowHungerNotificationAfterFeed,
   scheduleLowHungerNotification,
   sendLowHungerNotification,
@@ -69,10 +95,19 @@ import {
 
 export interface CatStageHandle {
   feedRegular: () => boolean;
+  feedItem: (foodId: FoodItemId) => boolean;
+  buyFoodItem: (foodId: Exclude<FoodItemId, 'snack'>, useImmediately?: boolean) => boolean;
+  useBathItem: (bathId: BathItemId) => boolean;
+  buyBathItem: (bathId: Exclude<BathItemId, 'basic_soap'>, useImmediately?: boolean) => boolean;
+  startSleep: (mode: ManualSleepMode) => boolean;
+  wakeUp: () => void;
   toggleSleep: () => void;
   tossToy: (targetNx?: number, targetNy?: number) => void;
+  startInteractivePlay: () => void;
+  canStartMiniGame: () => boolean;
+  petCat: (kind: 'short' | 'full') => void;
   giveMedicine: () => void;
-  applyMiniGameReward: (coinsEarned: number, happinessGain: number) => void;
+  applyMiniGameReward: (coinsEarned: number, happinessGain?: number) => void;
   applyShopItem: (item: ShopItem) => boolean;
   buyOrEquipBackground: (bgId: RoomBackgroundId) => boolean;
   buyOrEquipBed: (bedId: CatBedId) => boolean;
@@ -82,6 +117,8 @@ export interface CatStageHandle {
   getSaveData: () => SaveData;
   resetCat: (name: string, breed: CatBreed) => void;
   loadFromSave: (save: SaveData) => void;
+  applyDevPatch: (patch: DevStatePatch) => void;
+  devAction: (action: DevQuickAction) => void;
 }
 
 interface CatStageCanvasProps {
@@ -89,6 +126,7 @@ interface CatStageCanvasProps {
   toolMode: ToolMode;
   previewBreed: CatBreed;
   hungerSpeed: HungerSpeed;
+  devTimeScale?: DevTimeScale;
   onHudUpdate: (snapshot: CatHudSnapshot) => void;
   onGameOver: (finalSnapshot: CatHudSnapshot) => void;
   onToySessionEnd?: () => void;
@@ -101,9 +139,8 @@ const BOWL_POS = { nx: 0.43, ny: 0.748 };
 const FLOOR_BOUNDS = { minX: 0.15, maxX: 0.84, minY: 0.68, maxY: 0.89 };
 const BED_BOUNDS = { minX: 0.11, maxX: 0.87, minY: 0.67, maxY: 0.90 };
 const PARTICLE_POOL_SIZE = 96;
-const PLAY_SESSION_SECONDS = 5;
-const FREE_FEED_COOLDOWN_MS = 5 * 60 * 1000;
-const FREE_FEED_HUNGER_POINTS = 25;
+const PLAY_SESSION_SECONDS = 5.5;
+const FREE_COIN_REWARD_COOLDOWN_MS = 90 * 1000;
 const BRUSH_STROKE_PX = 48;
 const BRUSH_POINTS_PER_STROKE = 10;
 const CHRONIC_DIRTY_STRIKES = 3;
@@ -189,6 +226,13 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
+function formatCooldownMMSS(sec: number): string {
+  const s = Math.max(0, Math.ceil(sec));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+}
+
 export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
   (
     {
@@ -196,6 +240,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       toolMode,
       previewBreed,
       hungerSpeed,
+      devTimeScale = 1,
       onHudUpdate,
       onGameOver,
       onToySessionEnd,
@@ -213,6 +258,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     const toolModeRef = useRef<ToolMode>(toolMode);
     const previewBreedRef = useRef<CatBreed>(previewBreed);
     const hungerSpeedRef = useRef<HungerSpeed>(hungerSpeed);
+    const devTimeScaleRef = useRef<DevTimeScale>(devTimeScale);
     const onToySessionEndRef = useRef(onToySessionEnd);
     const onBatheCompleteRef = useRef(onBatheComplete);
     const onAutoSaveNeededRef = useRef(onAutoSaveNeeded);
@@ -221,6 +267,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     toolModeRef.current = toolMode;
     previewBreedRef.current = previewBreed;
     hungerSpeedRef.current = hungerSpeed;
+    devTimeScaleRef.current = devTimeScale;
     onToySessionEndRef.current = onToySessionEnd;
     onBatheCompleteRef.current = onBatheComplete;
     onAutoSaveNeededRef.current = onAutoSaveNeeded;
@@ -249,6 +296,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       rollTimer: 0,
       zzzTimer: 0,
       petCoinCooldown: 0,
+      petActionCooldown: 0,
+      petRubAccum: 0,
       brushCoinCooldown: 0,
       brushScrubAccum: 0,
       brushStrokeCooldown: 0,
@@ -268,7 +317,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       energy: 88,
       health: 100,
       isSick: false,
-      sickReason: null as 'health' | 'dirty_zero' | 'chronic_dirty' | null,
+      sickReason: null as 'health' | 'dirty_zero' | 'chronic_dirty' | 'overwork' | null,
       lowCleanlinessStrikes: 0,
       wasUnder25Clean: false,
       dirtyStayTimer: 0,
@@ -276,13 +325,21 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       chronicSickCheckTimer: 4.0,
       recoveryTimer: 0,
       starveGraceTimer: 0,
+      starveZeroTimer: 0,
+      zeroEnergyElapsedSec: 0,
+      autoSleepRetryTimer: 0,
+      lastDrowsyNoticeTier: 'fresh' as DrowsyStage,
+      deathReason: null as DeathReason,
+      pendingOldAgeGameOver: false,
       affectionXp: 0,
       level: 1,
       coins: 35,
-      day: 1,
-      timeOfDay: 0.15,
+      day: 0,
+      gameHour: INITIAL_GAME_HOUR,
+      lastDayPhaseNotice: 'pagi' as DayPhase,
+      timeOfDay: INITIAL_GAME_HOUR / 24,
       weather: 'cerah' as WeatherType,
-      weatherTimer: 32,
+      weatherTimer: 95,
       lightningTimer: 7.5,
       weatherFx: createWeatherFxState(),
       lifeStage: 'baby' as LifeStage,
@@ -292,6 +349,30 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       adultBranch: 'prima' as AdultEvolutionBranch,
       totalCatches: 0,
       totalPets: 0,
+
+      // Consumable Inventory, Sleep Session & Real-time Action Cooldowns
+      inventory: { ...INITIAL_INVENTORY } as ConsumableInventory,
+      sleepMode: 'none' as SleepMode,
+      sleepRemainingSec: 0,
+      sleepDurationSec: 0,
+      sleepTargetEnergy: 0,
+      sleepTargetHappy: 0,
+      sleepTargetHunger: 0,
+      sleepTargetClean: 0,
+      sleepAppliedEnergy: 0,
+      sleepAppliedHappy: 0,
+      sleepAppliedHunger: 0,
+      sleepAppliedClean: 0,
+      lastFreeBathTime: 0,
+      cooldownsUntil: {
+        snack: 0,
+        basicSoap: 0,
+        miniGame: 0,
+        interactivePlay: 0,
+        petShort: 0,
+        petFull: 0,
+        sleepManual: 0,
+      },
 
       // Room, Bed, Toy & Accessory customization
       activeBackground: 'classic_home' as RoomBackgroundId,
@@ -317,12 +398,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
       // Bowl
       bowlAmount: 0,
-      bowlTreatType: 'kibble' as BowlTreatType,
+      bowlTreatType: 'snack' as BowlTreatType,
       mealHungerRemaining: 0,
+      mealHappyRemaining: 0,
+      mealEnergyRemaining: 0,
       lastFreeFeedTime: 0,
       pendingTreatBonus: { happiness: 0, energy: 0 },
 
-      // Active Toy
+      // Active Toy & Play Session Tracking
       toy: {
         active: false,
         nx: 0.65,
@@ -335,6 +418,17 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         facing: 1 as 1 | -1,
         lifeTimer: 0,
         catchCooldown: 0,
+      },
+      playSession: {
+        active: false,
+        targetHappiness: 0,
+        appliedHappiness: 0,
+        targetEnergyCost: 0,
+        appliedEnergyCost: 0,
+        targetHungerCost: 0,
+        appliedHungerCost: 0,
+        targetCleanCost: 0,
+        appliedCleanCost: 0,
       },
 
       // Pointer tracking
@@ -455,52 +549,129 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       onAutoSaveNeededRef.current?.();
     };
 
+    const getPlayEffectiveness = (): { mult: number; reason: 'none' | 'ngambek' | 'lemas' | 'both' } => {
+      const s = simRef.current;
+      const ngambek = s.happiness < 40;
+      const lemas = s.energy < 20;
+      if (ngambek && lemas) return { mult: 0.4, reason: 'both' };
+      if (ngambek) return { mult: 0.55, reason: 'ngambek' };
+      if (lemas) return { mult: 0.55, reason: 'lemas' };
+      return { mult: 1.0, reason: 'none' };
+    };
+
+    const getPetEffectiveness = (): { mult: number; isNgambek: boolean } => {
+      const s = simRef.current;
+      const isNgambek = s.happiness < 40;
+      return { mult: isNgambek ? 0.6 : 1.0, isNgambek };
+    };
+
+    const flushPendingBowlMeal = () => {
+      const s = simRef.current;
+      if (s.mealHungerRemaining > 0) {
+        s.hunger = clamp(s.hunger + s.mealHungerRemaining, 0, 100);
+        s.mealHungerRemaining = 0;
+      }
+      if (s.mealHappyRemaining > 0 || s.mealEnergyRemaining > 0) {
+        s.happiness = clamp(s.happiness + s.mealHappyRemaining, 0, 100);
+        s.energy = clamp(s.energy + s.mealEnergyRemaining, 0, 100);
+        s.mealHappyRemaining = 0;
+        s.mealEnergyRemaining = 0;
+      }
+      if (s.pendingTreatBonus.happiness > 0 || s.pendingTreatBonus.energy > 0) {
+        s.happiness = clamp(s.happiness + s.pendingTreatBonus.happiness, 0, 100);
+        s.energy = clamp(s.energy + s.pendingTreatBonus.energy, 0, 100);
+        s.pendingTreatBonus = { happiness: 0, energy: 0 };
+      }
+    };
+
     const buildSnapshot = (): CatHudSnapshot => {
       const s = simRef.current;
-      const isHungry = s.hunger <= 30;
+      const now = Date.now();
+      const isHungry = s.hunger < 40;
       const isRecovering = s.recoveryTimer > 0;
+      const { gameHours } = computeCalendarDayAndHour(s.lifeStage, s.stageElapsedSec);
+      const dayPhase = getDayPhaseFromHour(s.gameHour);
+      const isDusk = isDuskHour(s.gameHour);
+      const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
+
+      const cooldownsSec = {
+        snack: Math.max(0, Math.ceil((s.cooldownsUntil.snack - now) / 1000)),
+        basicSoap: Math.max(0, Math.ceil((s.cooldownsUntil.basicSoap - now) / 1000)),
+        miniGame: Math.max(0, Math.ceil((s.cooldownsUntil.miniGame - now) / 1000)),
+        interactivePlay: Math.max(0, Math.ceil((s.cooldownsUntil.interactivePlay - now) / 1000)),
+        petShort: Math.max(0, Math.ceil((s.cooldownsUntil.petShort - now) / 1000)),
+        petFull: Math.max(0, Math.ceil((s.cooldownsUntil.petFull - now) / 1000)),
+        sleepManual: Math.max(0, Math.ceil((s.cooldownsUntil.sleepManual - now) / 1000)),
+      };
 
       let moodLabel = 'Tenang & Nyaman';
       if (isRecovering) moodLabel = 'Pulih Perlahan';
       else if (s.isSick) moodLabel = 'Sedang Sakit';
-      else if (s.behavior === 'SLEEPING') moodLabel = 'Tidur Nyenyak';
-      else if (s.behavior === 'EATING') moodLabel = 'Lahap Makan';
+      else if (s.behavior === 'SLEEPING') {
+        moodLabel =
+          s.sleepMode === 'auto_sleep'
+            ? 'Tidur Otomatis'
+            : s.sleepMode === 'power_nap'
+            ? 'Power Nap'
+            : 'Tidur Nyenyak';
+      } else if (s.behavior === 'EATING') moodLabel = 'Lahap Makan';
       else if (s.behavior === 'PLAYING' && s.toy.active) {
         moodLabel = `Main ${getToyOption(s.activeToy).name}`;
-      }
-      else if (s.behavior === 'ROLLING') moodLabel = 'Berguling Lucu';
+      } else if (s.behavior === 'ROLLING') moodLabel = 'Berguling Lucu';
       else if (s.behavior === 'PURRING') moodLabel = 'Sangat Manja';
       else if (s.behavior === 'STRETCHING') moodLabel = 'Meregangkan Badan';
-      else if (s.hunger <= 12) moodLabel = 'Kelaparan!';
-      else if (isHungry) moodLabel = 'Mulai Lapar';
-      else if (s.cleanliness < 25) moodLabel = 'Perlu Disisir';
-      else if (s.energy < 22) moodLabel = 'Mengantuk';
-      else if (s.happiness > 82) moodLabel = 'Sangat Ceria';
+      else if (s.hunger <= 0) moodLabel = 'Kelaparan!';
+      else if (isHungry) moodLabel = 'Rewel Minta Makan';
+      else if (s.happiness < 40) moodLabel = 'Sedang Ngambek';
+      else if (s.cleanliness < 40) moodLabel = 'Perlu Dibersihkan';
+      else if (drowsyStage === 'drowsy_heavy' || drowsyStage === 'exhausted') {
+        moodLabel = 'Sangat Ngantuk';
+      } else if (drowsyStage === 'drowsy_light') {
+        moodLabel = 'Mulai Ngantuk';
+      } else if (s.happiness > 82) moodLabel = 'Sangat Ceria';
 
       let warningText: string | null = null;
       if (s.isSick && !isRecovering) {
-        if (s.sickReason === 'dirty_zero') {
+        if (s.sickReason === 'overwork') {
+          warningText = `Kelelahan / Overwork! ${s.name} jatuh sakit karena Energi 0 terlalu lama—segera beri obat.`;
+        } else if (s.sickReason === 'dirty_zero') {
           warningText = `Kebersihan 0%! ${s.name} jatuh sakit—mandikan dan beri obat.`;
         } else if (s.sickReason === 'chronic_dirty') {
           warningText = `${s.name} jatuh sakit karena terlalu sering kotor! Segera beri obat.`;
         } else {
           warningText = `${s.name} sedang sakit (lemas & berjalan lambat)! Segera beri obat.`;
         }
+      } else if (s.behavior === 'SLEEPING' && s.sleepMode === 'auto_sleep') {
+        warningText = `Kelelahan total! ${s.name} masuk [AUTO-SLEEP] (${formatCooldownMMSS(
+          s.sleepRemainingSec
+        )}) · Bermain & Mandi dikunci.`;
+      } else if (s.hunger <= 0 && s.bowlAmount <= 0.02) {
+        warningText = `${s.name} kelaparan (0%)! Kondisi memburuk—segera beri makan.`;
       } else if (s.hunger < 20 && s.bowlAmount <= 0.02) {
         warningText = `${s.name} sangat lapar (<20%)! Kesehatannya mulai menurun—segera beri makan.`;
-      } else if (s.hunger <= 30 && s.bowlAmount <= 0.02) {
-        warningText = `Perut ${s.name} keroncongan! Waktunya beri makan.`;
+      } else if (s.energy <= 20 && s.behavior !== 'SLEEPING') {
+        warningText = `${s.name} sangat ngantuk (${Math.round(
+          s.energy
+        )}% Energi)! Mainan Interaktif ditolak—segera tidurkan.`;
+      } else if (s.hunger < 40 && s.bowlAmount <= 0.02) {
+        warningText = `${s.name} mulai rewel minta makan (<40%)! Waktunya beri makan.`;
       } else if (s.cleanliness < 15) {
         warningText = `${s.name} sangat kotor (<15%)! Kesehatannya menurun—segera mandikan.`;
+      } else if (s.cleanliness < 40) {
+        warningText = `${s.name} mulai kotor (<40%)! Bersihkan agar Bahagia tidak ikut turun.`;
+      } else if (drowsyStage === 'drowsy_light' && s.behavior !== 'SLEEPING') {
+        const ctxTags = [
+          dayPhase === 'malam' ? 'Malam' : '',
+          s.weather === 'hujan' ? 'Hujan' : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        warningText = `${s.name} mulai ngantuk (${Math.round(
+          s.energy
+        )}% Energi${ctxTags ? ` · ${ctxTags}` : ''})! Konsumsi energi aktivitas naik 1,15x.`;
+      } else if (s.happiness < 40) {
+        warningText = `${s.name} sedang ngambek (<40% Bahagia)! Efek main & elus berkurang sampai tenang.`;
       }
-
-      const freeFeedCooldownSec =
-        s.lastFreeFeedTime > 0
-          ? Math.max(
-              0,
-              Math.ceil((FREE_FEED_COOLDOWN_MS - (Date.now() - s.lastFreeFeedTime)) / 1000)
-            )
-          : 0;
 
       return {
         name: s.name,
@@ -519,6 +690,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         level: s.level,
         coins: s.coins,
         day: s.day,
+        gameHours,
+        gameHour: s.gameHour,
+        dayPhase,
+        isDusk,
         timeOfDay: s.timeOfDay,
         weather: s.weather,
         lifeStage: s.lifeStage,
@@ -527,8 +702,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         careMistakes: s.careMistakes,
         adultBranch: s.adultBranch,
         miniGameUnlocked: s.lifeStage !== 'baby',
+        deathReason: s.deathReason,
+        personality: s.personality,
         bowlAmount: s.bowlAmount,
-        freeFeedCooldownSec,
+        freeFeedCooldownSec: cooldownsSec.snack,
         totalCatches: s.totalCatches,
         totalPets: s.totalPets,
         activeBackground: s.activeBackground,
@@ -541,46 +718,682 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         equippedGlasses: s.equippedGlasses,
         equippedScarf: s.equippedScarf,
         unlockedAccessories: [...s.unlockedAccessories],
+        inventory: { ...s.inventory },
+        sleepMode: s.sleepMode,
+        sleepRemainingSec: Math.max(0, Math.ceil(s.sleepRemainingSec)),
+        sleepDurationSec: s.sleepDurationSec,
+        drowsyStage,
+        cooldownsSec,
         moodLabel,
         warningText,
       };
     };
 
-    const tossToyInternal = (targetNx?: number, targetNy?: number) => {
+    const feedItemInternal = (foodId: FoodItemId): boolean => {
       const s = simRef.current;
       soundEngine.unlock();
+      const item = FOOD_ITEMS.find((f) => f.id === foodId);
+      if (!item) return false;
 
-      // Batasan Aksi: jika energi < 20 atau kenyang < 20, kucing menolak bermain
-      if (s.energy < 20 || s.hunger < 20) {
-        s.toy.active = false;
-        if (s.behavior === 'PLAYING') s.behavior = 'IDLE';
-        soundEngine.playMeow(0.84);
-        const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
+      const now = Date.now();
+      const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
+
+      if (item.isFree) {
+        // Camilan Ringan: cooldown 2 menit nyata; ditolak jika Bahagia sudah 100
+        if (Math.round(s.happiness) >= 100) {
+          soundEngine.playBounce();
+          spawnParticle('text', catPos.x, catPos.y - 34, {
+            label: 'Bahagia sudah 100! Camilan ditolak',
+            color: '#FCA5A5',
+            size: 13.5,
+            vy: -26,
+            maxLife: 1.4,
+          });
+          return false;
+        }
+        if (s.cooldownsUntil.snack > now) {
+          const rem = Math.ceil((s.cooldownsUntil.snack - now) / 1000);
+          soundEngine.playBounce();
+          spawnParticle('text', catPos.x, catPos.y - 34, {
+            label: `Camilan Gratis cooldown (${formatCooldownMMSS(rem)})`,
+            color: '#FDE68A',
+            size: 13.5,
+            vy: -26,
+            maxLife: 1.4,
+          });
+          return false;
+        }
+        s.cooldownsUntil.snack = now + item.cooldownSec * 1000;
+      } else {
+        // Makanan Shop: tanpa cooldown (dibatasi stok); ditolak jika Kenyang sudah 100
+        if (Math.round(s.hunger) >= 100) {
+          soundEngine.playBounce();
+          spawnParticle('text', catPos.x, catPos.y - 34, {
+            label: 'Kenyang sudah penuh (100)!',
+            color: '#FCA5A5',
+            size: 13.5,
+            vy: -26,
+            maxLife: 1.4,
+          });
+          return false;
+        }
+        const key = foodId as keyof ConsumableInventory;
+        if (s.inventory[key] <= 0) return false;
+        s.inventory = { ...s.inventory, [key]: s.inventory[key] - 1 };
+      }
+
+      flushPendingBowlMeal();
+
+      s.bowlAmount = 1;
+      s.bowlTreatType = item.id;
+      s.mealHungerRemaining = item.hungerDelta;
+      s.mealHappyRemaining = item.happinessDelta;
+      s.mealEnergyRemaining = item.energyDelta;
+      s.pendingTreatBonus = { happiness: 0, energy: 0 };
+      s.idleZoomies = false;
+
+      if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+        // Jangan bangunkan paksa saat memberi makan; makanan menunggu di mangkuk
+        const bowlScr = roomToScreen(BOWL_POS.nx, BOWL_POS.ny, s.lastRoomTransform);
+        spawnParticle('sparkle', bowlScr.x, bowlScr.y - 18, {
+          color: '#F59E0B',
+          size: 8,
+          maxLife: 0.75,
+        });
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: s.energy < 20 ? 'Terlalu lelah untuk main!' : 'Terlalu lapar untuk main!',
+          label: `${item.shortName} ditaruh di mangkuk (masih tidur)`,
+          color: '#FDE68A',
+          size: 13,
+          vy: -26,
+          maxLife: 1.5,
+        });
+        onHudUpdate(buildSnapshot());
+        return true;
+      }
+
+      if (s.behavior === 'ROLLING' || s.behavior === 'PURRING') {
+        s.behavior = 'WALKING';
+        s.z = 0;
+        s.vz = 0;
+      }
+      s.targetNx = BOWL_POS.nx + 0.06;
+      s.targetNy = BOWL_POS.ny;
+      soundEngine.playMeow(1.08);
+
+      const stageRates = getStageDecayRatesPerSec(
+        s.lifeStage,
+        s.stageElapsedSec,
+        s.adultBranch,
+        hungerSpeedRef.current
+      );
+      resetLowHungerNotificationAfterFeed(
+        Math.min(100, s.hunger + item.hungerDelta),
+        stageRates.hungerPerSec
+      );
+
+      const bowlScr = roomToScreen(BOWL_POS.nx, BOWL_POS.ny, s.lastRoomTransform);
+      spawnParticle('sparkle', bowlScr.x, bowlScr.y - 18, {
+        color: '#F59E0B',
+        size: 8,
+        maxLife: 0.75,
+      });
+      spawnParticle('text', catPos.x, catPos.y - 34, {
+        label: `${item.shortName}: +${item.hungerDelta} Kenyang · +${item.happinessDelta} Bahagia`,
+        color: '#FDE68A',
+        size: 13,
+        vy: -28,
+        maxLife: 1.5,
+      });
+
+      onHudUpdate(buildSnapshot());
+      return true;
+    };
+
+    const useBathItemInternal = (bathId: BathItemId): boolean => {
+      const s = simRef.current;
+      soundEngine.unlock();
+      const item = BATH_ITEMS.find((b) => b.id === bathId);
+      if (!item) return false;
+
+      const now = Date.now();
+      const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
+
+      if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Mandi dikunci saat kucing sedang tidur!',
+          color: '#FCA5A5',
+          size: 13.5,
+          vy: -26,
+          maxLife: 1.4,
+        });
+        return false;
+      }
+
+      if (Math.round(s.cleanliness) >= 100) {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Bersih sudah penuh (100)!',
+          color: '#A7F3D0',
+          size: 13.5,
+          vy: -26,
+          maxLife: 1.4,
+        });
+        return false;
+      }
+
+      if (item.isFree) {
+        if (s.cooldownsUntil.basicSoap > now) {
+          const rem = Math.ceil((s.cooldownsUntil.basicSoap - now) / 1000);
+          soundEngine.playBounce();
+          spawnParticle('text', catPos.x, catPos.y - 36, {
+            label: `Sabun Dasar cooldown (${formatCooldownMMSS(rem)})`,
+            color: '#FDE68A',
+            size: 13.5,
+            vy: -26,
+            maxLife: 1.4,
+          });
+          return false;
+        }
+        s.cooldownsUntil.basicSoap = now + item.cooldownSec * 1000;
+      } else {
+        const key = bathId as keyof ConsumableInventory;
+        if (s.inventory[key] <= 0) return false;
+        s.inventory = { ...s.inventory, [key]: s.inventory[key] - 1 };
+      }
+
+      s.cleanliness = clamp(s.cleanliness + item.cleanlinessDelta, 0, 100);
+      s.happiness = clamp(s.happiness + item.happinessDelta, 0, 100);
+      if (bathId === 'spa_bath') {
+        s.cleanliness = 100;
+        s.lowCleanlinessStrikes = 0;
+        s.wasUnder25Clean = false;
+        s.dirtyStayTimer = 0;
+      }
+
+      s.z = 0;
+      s.vz = 0;
+      s.behavior = 'GROOMING';
+      s.groomTimer = 1.6;
+      s.scaleX = 1.07;
+      s.scaleY = 0.94;
+      soundEngine.playBrush();
+      if (bathId !== 'basic_soap') {
+        soundEngine.playChime();
+      }
+
+      const bubbleCount = bathId === 'spa_bath' ? 12 : bathId === 'shampoo_foam' ? 9 : 6;
+      for (let i = 0; i < bubbleCount; i++) {
+        spawnParticle(
+          i % 3 === 0 && bathId === 'spa_bath' ? 'sparkle' : 'bubble',
+          catPos.x + (Math.random() - 0.5) * 64,
+          catPos.y - 8 + (Math.random() - 0.5) * 34,
+          {
+            color: bathId === 'spa_bath' ? '#F9A8D4' : '#BAE6FD',
+            size: 5 + Math.random() * 5,
+            vx: (Math.random() - 0.5) * 44,
+            vy: -32 - Math.random() * 24,
+            maxLife: 1.0,
+          }
+        );
+      }
+
+      spawnParticle('text', catPos.x, catPos.y - 38, {
+        label:
+          bathId === 'spa_bath'
+            ? `Bersih Penuh 100% · +${item.happinessDelta} Bahagia`
+            : `+${item.cleanlinessDelta} Bersih · +${item.happinessDelta} Bahagia`,
+        color: bathId === 'spa_bath' ? '#FBCFE8' : '#BAE6FD',
+        size: 13.5,
+        vy: -28,
+        maxLife: 1.55,
+      });
+
+      const canRewardCoins = !item.isFree || now - s.lastFreeBathTime >= FREE_COIN_REWARD_COOLDOWN_MS;
+      if (canRewardCoins) {
+        if (item.isFree) s.lastFreeBathTime = now;
+        addXpAndCoins(6, 1, catPos.x, catPos.y - 58);
+      }
+
+      onHudUpdate(buildSnapshot());
+      return true;
+    };
+
+    const petCatInternal = (kind: 'short' | 'full'): boolean => {
+      const s = simRef.current;
+      soundEngine.unlock();
+      const now = Date.now();
+      const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
+
+      if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Zzz... Sedang tidur',
+          color: '#BFDBFE',
+          size: 13.5,
+          vy: -24,
+          maxLife: 1.2,
+        });
+        return false;
+      }
+
+      if (Math.round(s.happiness) >= 100) {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Bahagia sudah penuh (100)!',
+          color: '#FCA5A5',
+          size: 13.5,
+          vy: -26,
+          maxLife: 1.4,
+        });
+        return false;
+      }
+
+      const cdUntil = kind === 'full' ? s.cooldownsUntil.petFull : s.cooldownsUntil.petShort;
+      if (cdUntil > now) {
+        const rem = Math.ceil((cdUntil - now) / 1000);
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: `${kind === 'full' ? 'Kasih Sayang' : 'Elus Singkat'} cooldown (${formatCooldownMMSS(rem)})`,
+          color: '#FDE68A',
+          size: 13,
+          vy: -26,
+          maxLife: 1.35,
+        });
+        return false;
+      }
+
+      const base = kind === 'full' ? ACTION_DELTAS.petFull : ACTION_DELTAS.petShort;
+      const { mult, isNgambek } = getPetEffectiveness();
+      const happyGain = Math.max(1, Math.round(base.happiness * mult));
+
+      if (kind === 'full') {
+        s.cooldownsUntil.petFull = now + base.cooldownSec * 1000;
+      } else {
+        s.cooldownsUntil.petShort = now + base.cooldownSec * 1000;
+      }
+
+      // Energi tidak lagi bertambah dari Elus-elus (+0 Energi); Kasih Sayang: -2 Kenyang
+      s.happiness = clamp(s.happiness + happyGain, 0, 100);
+      if (base.hunger !== 0) {
+        s.hunger = clamp(s.hunger + base.hunger, 0, 100);
+      }
+      const isRainSoothing = s.weather === 'hujan';
+      s.totalPets += 1;
+      s.z = 0;
+      s.vz = 0;
+      s.behavior = 'PURRING';
+      s.purrDecayTimer = (kind === 'full' ? 1.8 : 1.25) + (isRainSoothing ? 0.5 : 0);
+      s.scaleX = 1.08;
+      s.scaleY = 0.93;
+
+      if (kind === 'full') {
+        soundEngine.playPurr();
+        soundEngine.playChime();
+      } else {
+        soundEngine.playMeow(s.isSick ? 0.85 : 1.08);
+      }
+
+      const heartCount = (kind === 'full' ? 7 : 4) + (isRainSoothing ? 2 : 0);
+      for (let i = 0; i < heartCount; i++) {
+        spawnParticle(
+          i % 2 === 0 ? 'heart' : 'heart_sparkle',
+          catPos.x + (Math.random() - 0.5) * 48,
+          catPos.y - 12 + (Math.random() - 0.5) * 18,
+          {
+            color: '#EC6A76',
+            size: 8.5 + Math.random() * 3.5,
+            vx: (Math.random() - 0.5) * 26,
+            vy: -38 - Math.random() * 20,
+            maxLife: 1.0,
+          }
+        );
+      }
+
+      const hungerSuffix = base.hunger < 0 ? ` · ${base.hunger} Kenyang` : '';
+      const rainSuffix = isRainSoothing ? ' · Tenang saat hujan' : '';
+      spawnParticle('text', catPos.x, catPos.y - 36, {
+        label: isNgambek
+          ? `+${happyGain} Bahagia (Ngambek) · +0 Energi${hungerSuffix}${rainSuffix}`
+          : `+${happyGain} Bahagia · +0 Energi${hungerSuffix}${rainSuffix}`,
+        color: isNgambek ? '#FDE68A' : '#FBCFE8',
+        size: 13.5,
+        vy: -28,
+        maxLife: 1.5,
+      });
+
+      if (s.petCoinCooldown <= 0) {
+        s.petCoinCooldown = 2.5;
+        addXpAndCoins(kind === 'full' ? 8 : 5, 1, catPos.x, catPos.y - 56);
+      }
+      onHudUpdate(buildSnapshot());
+      return true;
+    };
+
+    const startSleepInternal = (mode: ManualSleepMode): boolean => {
+      const s = simRef.current;
+      soundEngine.unlock();
+      const now = Date.now();
+      const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
+
+      if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Kucing sedang tidur!',
+          color: '#BFDBFE',
+          size: 13.5,
+          vy: -26,
+          maxLife: 1.3,
+        });
+        return false;
+      }
+
+      if (Math.round(s.energy) >= 100) {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Energi sudah penuh (100)!',
+          color: '#FCA5A5',
+          size: 13.5,
+          vy: -26,
+          maxLife: 1.4,
+        });
+        return false;
+      }
+
+      if (s.cooldownsUntil.sleepManual > now) {
+        const rem = Math.ceil((s.cooldownsUntil.sleepManual - now) / 1000);
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: `Cooldown tidur manual (${formatCooldownMMSS(rem)})`,
+          color: '#FDE68A',
+          size: 13.5,
+          vy: -26,
+          maxLife: 1.4,
+        });
+        return false;
+      }
+
+      const dayPhase = getDayPhaseFromHour(s.gameHour);
+      const phaseMult = getDayPhaseMultipliers(dayPhase);
+      const weatherMult = getWeatherMultipliers(s.weather);
+      const sleepEnergyMult = phaseMult.sleepEnergyMult * weatherMult.sleepEnergyMult;
+
+      if (dayPhase !== 'malam' && s.energy > 85) {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Masih segar (>85 Energi) di Pagi/Siang! Menolak tidur',
+          color: '#FCA5A5',
+          size: 13,
+          vy: -26,
+          maxLife: 1.55,
+        });
+        return false;
+      }
+
+      if (dayPhase !== 'malam' && s.energy > 70 && mode === 'full_rest') {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Energi >70 di Pagi/Siang! Hanya mau tidur sebentar',
+          color: '#FDE68A',
+          size: 13,
+          vy: -26,
+          maxLife: 1.55,
+        });
+        return false;
+      }
+
+      const opt = SLEEP_OPTIONS.find((o) => o.id === mode) ?? SLEEP_OPTIONS[0];
+      const isBriefDayNap = dayPhase !== 'malam' && s.energy > 70 && mode === 'power_nap';
+
+      s.toy.active = false;
+      s.playSession.active = false;
+      s.idleZoomies = false;
+      onToySessionEndRef.current?.();
+      onBatheCompleteRef.current?.();
+
+      s.sleepMode = opt.id;
+      if (isBriefDayNap) {
+        s.sleepDurationSec = 90;
+        s.sleepRemainingSec = 90;
+        s.sleepTargetEnergy = Math.round(20 * sleepEnergyMult * 10) / 10;
+        s.sleepTargetHappy = 3;
+        s.sleepTargetHunger = -3;
+        s.sleepTargetClean = 0;
+      } else {
+        s.sleepDurationSec = opt.durationSec;
+        s.sleepRemainingSec = opt.durationSec;
+        s.sleepTargetEnergy = Math.round(opt.energyDelta * sleepEnergyMult * 10) / 10;
+        s.sleepTargetHappy = opt.happinessDelta;
+        s.sleepTargetHunger = opt.hungerDelta;
+        s.sleepTargetClean = opt.cleanlinessDelta;
+      }
+      s.sleepAppliedEnergy = 0;
+      s.sleepAppliedHappy = 0;
+      s.sleepAppliedHunger = 0;
+      s.sleepAppliedClean = 0;
+
+      s.behavior = 'WALKING';
+      s.targetNx = s.bedNx;
+      s.targetNy = s.bedNy;
+      s.idleDecisionTimer = -99;
+
+      const sleepBonusTags = [
+        dayPhase === 'pagi' ? 'Pagi +10%' : dayPhase === 'malam' ? 'Malam +20%' : '',
+        s.weather === 'hujan' ? 'Hujan +10%' : '',
+      ].filter(Boolean);
+      const sleepBonusTag = sleepBonusTags.length > 0 ? ` · Bonus ${sleepBonusTags.join(' & ')}` : '';
+      soundEngine.playSleep();
+      spawnParticle('text', catPos.x, catPos.y - 36, {
+        label: isBriefDayNap
+          ? `Masih cukup segar — tidur sebentar (1,5 mnt · +${Math.round(s.sleepTargetEnergy)} Energi)`
+          : `${opt.shortName} (${Math.round(opt.durationSec / 60)} mnt${sleepBonusTag}): ${opt.description}`,
+        color: '#BFDBFE',
+        size: 13,
+        vy: -26,
+        maxLife: 1.75,
+      });
+      onHudUpdate(buildSnapshot());
+      return true;
+    };
+
+    const wakeUpInternal = () => {
+      const s = simRef.current;
+      soundEngine.unlock();
+      if (s.behavior !== 'SLEEPING' && s.sleepMode === 'none') return;
+
+      const prevMode = s.sleepMode;
+      const wasInterrupted = s.sleepRemainingSec > 0.5;
+      const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
+
+      if (wasInterrupted) {
+        s.happiness = clamp(s.happiness - 10, 0, 100);
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Tidur terganggu! -10 Bahagia',
           color: '#FCA5A5',
           size: 14,
           vy: -28,
-          maxLife: 1.35,
+          maxLife: 1.6,
+        });
+      }
+
+      if (prevMode === 'power_nap' || prevMode === 'full_rest') {
+        const opt = SLEEP_OPTIONS.find((o) => o.id === prevMode);
+        const cdSec = opt?.cooldownAfterWakeSec ?? (prevMode === 'power_nap' ? 180 : 300);
+        s.cooldownsUntil.sleepManual = Date.now() + cdSec * 1000;
+      } else if (prevMode === 'auto_sleep' && s.energy <= 0.5) {
+        s.autoSleepRetryTimer = 15;
+      }
+
+      s.sleepMode = 'none';
+      s.sleepRemainingSec = 0;
+      s.sleepDurationSec = 0;
+      s.sleepTargetEnergy = 0;
+      s.sleepTargetHappy = 0;
+      s.sleepTargetHunger = 0;
+      s.sleepTargetClean = 0;
+      s.sleepAppliedEnergy = 0;
+      s.sleepAppliedHappy = 0;
+      s.sleepAppliedHunger = 0;
+      s.sleepAppliedClean = 0;
+
+      if (s.behavior === 'SLEEPING' || (s.behavior === 'WALKING' && s.idleDecisionTimer < -50)) {
+        s.behavior = 'STRETCHING';
+        s.stretchTimer = 1.4;
+        s.idleDecisionTimer = 2.0;
+        s.scaleX = 1.08;
+        s.scaleY = 0.92;
+        soundEngine.playMeow(0.95);
+      }
+      onHudUpdate(buildSnapshot());
+    };
+
+    const canStartMiniGameInternal = (showNotice = true): boolean => {
+      const s = simRef.current;
+      const now = Date.now();
+      const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
+      let errMsg: string | null = null;
+
+      if (s.lifeStage === 'baby') {
+        errMsg = 'Mini-Game terbuka mulai Fase Anak!';
+      } else if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+        errMsg = 'Bermain dikunci saat kucing sedang tidur!';
+      } else if (s.isSick) {
+        errMsg = 'Sedang sakit — sembuhkan dulu sebelum Mini-Game!';
+      } else if (Math.round(s.happiness) >= 100) {
+        errMsg = 'Bahagia sudah 100! Mini-Game ditolak';
+      } else if (s.energy < 20) {
+        errMsg = 'Energi < 20! Terlalu lemas untuk Mini-Game';
+      } else if (s.hunger <= 2) {
+        errMsg = 'Terlalu lapar! Beri makan dulu';
+      } else if (s.cooldownsUntil.miniGame > now) {
+        const rem = Math.ceil((s.cooldownsUntil.miniGame - now) / 1000);
+        errMsg = `Mini-Game cooldown (${formatCooldownMMSS(rem)})`;
+      }
+
+      if (errMsg) {
+        if (showNotice) {
+          soundEngine.playBounce();
+          spawnParticle('text', catPos.x, catPos.y - 36, {
+            label: errMsg,
+            color: '#FCA5A5',
+            size: 13.5,
+            vy: -26,
+            maxLife: 1.45,
+          });
+        }
+        return false;
+      }
+      return true;
+    };
+
+    const tossToyInternal = (targetNx?: number, targetNy?: number) => {
+      const s = simRef.current;
+      soundEngine.unlock();
+      const now = Date.now();
+      const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
+
+      if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+        s.toy.active = false;
+        s.playSession.active = false;
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 34, {
+          label: 'Bermain dikunci saat kucing sedang tidur!',
+          color: '#FCA5A5',
+          size: 13.5,
+          vy: -28,
+          maxLife: 1.45,
         });
         onToySessionEndRef.current?.();
         return;
       }
 
-      if (s.behavior === 'SLEEPING' || s.behavior === 'ROLLING') {
+      const isFreshSession = !s.toy.active || s.toy.lifeTimer <= 0.05;
+
+      if (isFreshSession) {
+        let blockReason: string | null = null;
+        if (s.isSick) {
+          blockReason = 'Sedang sakit — Mainan Interaktif ditolak!';
+        } else if (Math.round(s.happiness) >= 100) {
+          blockReason = 'Bahagia sudah 100! Mainan ditolak';
+        } else if (s.energy <= 20) {
+          blockReason = 'Sangat ngantuk (<=20 Energi)! Mainan Interaktif ditolak';
+        } else if (s.hunger <= 2) {
+          blockReason = 'Terlalu lapar! Beri makan dulu';
+        } else if (s.cooldownsUntil.interactivePlay > now) {
+          const rem = Math.ceil((s.cooldownsUntil.interactivePlay - now) / 1000);
+          blockReason = `Mainan Interaktif cooldown (${formatCooldownMMSS(rem)})`;
+        }
+
+        if (blockReason) {
+          s.toy.active = false;
+          s.playSession.active = false;
+          if (s.behavior === 'PLAYING') s.behavior = 'IDLE';
+          soundEngine.playMeow(0.8);
+          spawnParticle('text', catPos.x, catPos.y - 34, {
+            label: blockReason,
+            color: '#FCA5A5',
+            size: 13.5,
+            vy: -28,
+            maxLife: 1.5,
+          });
+          onToySessionEndRef.current?.();
+          return;
+        }
+      }
+
+      if (s.behavior === 'ROLLING') {
         s.behavior = 'IDLE';
         s.z = 0;
         s.vz = 0;
-        soundEngine.playMeow(1.08);
       }
       s.idleZoomies = false;
       const tx = clamp(targetNx ?? 0.28 + Math.random() * 0.48, FLOOR_BOUNDS.minX, FLOOR_BOUNDS.maxX);
       const ty = clamp(targetNy ?? 0.72 + Math.random() * 0.14, FLOOR_BOUNDS.minY, FLOOR_BOUNDS.maxY);
 
-      const isFreshSession = !s.toy.active || s.toy.lifeTimer <= 0.05;
       s.toy.active = true;
       if (isFreshSession) {
+        s.cooldownsUntil.interactivePlay = now + ACTION_DELTAS.playInteractiveFull.cooldownSec * 1000;
         s.toy.lifeTimer = PLAY_SESSION_SECONDS;
+        const { mult, reason } = getPlayEffectiveness();
+        const dayPhase = getDayPhaseFromHour(s.gameHour);
+        const phaseMult = getDayPhaseMultipliers(dayPhase);
+        const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
+        const isDrowsyPenalty = drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy';
+        const actEnergyMult = isDrowsyPenalty ? 1.15 : 1.0;
+        const targetHappy = Math.max(
+          8,
+          Math.round(ACTION_DELTAS.playInteractiveFull.happiness * mult * phaseMult.playHappyMult)
+        );
+        const targetCost = Math.abs(ACTION_DELTAS.playInteractiveFull.energy) * actEnergyMult;
+        s.playSession = {
+          active: true,
+          targetHappiness: targetHappy,
+          appliedHappiness: 0,
+          targetEnergyCost: targetCost,
+          appliedEnergyCost: 0,
+          targetHungerCost: Math.abs(ACTION_DELTAS.playInteractiveFull.hunger),
+          appliedHungerCost: 0,
+          targetCleanCost: Math.abs(ACTION_DELTAS.playInteractiveFull.cleanliness),
+          appliedCleanCost: 0,
+        };
+        if (reason !== 'none' || isDrowsyPenalty || phaseMult.playHappyMult > 1) {
+          const middayBonus = phaseMult.playHappyMult > 1 ? ' · Bonus Siang +10%' : '';
+          const reasonLabel =
+            reason === 'ngambek'
+              ? `Ngambek (<40) · Main berkurang (+${targetHappy} Bahagia${isDrowsyPenalty ? ' · Energi 1,15x' : ''})`
+              : isDrowsyPenalty
+              ? `Mulai Ngantuk · Energi main naik 1,15x (-${targetCost.toFixed(1)} Energi${middayBonus})`
+              : reason !== 'none'
+              ? `Lemas · Main kurang maksimal (+${targetHappy} Bahagia)`
+              : `Main Siang! +${targetHappy} Bahagia (Bonus +10%)`;
+          spawnParticle('text', catPos.x, catPos.y - 36, {
+            label: reasonLabel,
+            color: reason === 'none' && !isDrowsyPenalty ? '#FDE047' : '#FDE68A',
+            size: 13,
+            vy: -24,
+            maxLife: 1.65,
+          });
+        }
       }
 
       if (s.activeToy === 'laser_pointer') {
@@ -635,76 +1448,96 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     };
 
     useImperativeHandle(ref, () => ({
-      feedRegular: (): boolean => {
+      feedRegular: (): boolean => feedItemInternal('snack'),
+
+      feedItem: (foodId: FoodItemId): boolean => feedItemInternal(foodId),
+
+      buyFoodItem: (foodId: Exclude<FoodItemId, 'snack'>, useImmediately = false): boolean => {
         const s = simRef.current;
         soundEngine.unlock();
-        const now = Date.now();
-        const elapsed = now - s.lastFreeFeedTime;
-        if (s.lastFreeFeedTime > 0 && elapsed < FREE_FEED_COOLDOWN_MS) {
-          const remainSec = Math.max(1, Math.ceil((FREE_FEED_COOLDOWN_MS - elapsed) / 1000));
-          const mins = Math.floor(remainSec / 60);
-          const secs = remainSec % 60;
+        const item = FOOD_ITEMS.find((f) => f.id === foodId);
+        if (!item || s.coins < item.price) return false;
+        if (useImmediately && Math.round(s.hunger) >= 100) {
+          const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
           soundEngine.playBounce();
-          const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
           spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: `Makanan gratis siap ${mins}m ${secs.toString().padStart(2, '0')}d`,
-            color: '#FDE68A',
-            size: 13,
+            label: 'Kenyang sudah penuh (100)!',
+            color: '#FCA5A5',
+            size: 13.5,
             vy: -26,
-            maxLife: 1.35,
+            maxLife: 1.4,
           });
-          onHudUpdate(buildSnapshot());
           return false;
         }
-
-        s.lastFreeFeedTime = now;
-        s.bowlAmount = 1;
-        s.bowlTreatType = 'kibble';
-        s.mealHungerRemaining = FREE_FEED_HUNGER_POINTS;
-        s.pendingTreatBonus = { happiness: 6, energy: 0 };
-        s.idleZoomies = false;
-        if (s.behavior === 'SLEEPING' || s.behavior === 'ROLLING') {
-          s.behavior = 'WALKING';
+        s.coins -= item.price;
+        s.inventory = { ...s.inventory, [foodId]: s.inventory[foodId] + 1 };
+        soundEngine.playChime();
+        if (useImmediately) {
+          return feedItemInternal(foodId);
         }
-        s.targetNx = BOWL_POS.nx + 0.06;
-        s.targetNy = BOWL_POS.ny;
-        soundEngine.playMeow(1.05);
-        resetLowHungerNotificationAfterFeed(
-          Math.min(100, s.hunger + FREE_FEED_HUNGER_POINTS),
-          OFFLINE_HUNGER_DECAY_PER_SEC
-        );
-        const bowlScr = roomToScreen(BOWL_POS.nx, BOWL_POS.ny, s.lastRoomTransform);
-        spawnParticle('sparkle', bowlScr.x, bowlScr.y - 18, {
-          color: '#F59E0B',
-          size: 8,
-          maxLife: 0.7,
-        });
         onHudUpdate(buildSnapshot());
         return true;
       },
 
-      toggleSleep: () => {
+      useBathItem: (bathId: BathItemId): boolean => useBathItemInternal(bathId),
+
+      buyBathItem: (bathId: Exclude<BathItemId, 'basic_soap'>, useImmediately = false): boolean => {
         const s = simRef.current;
         soundEngine.unlock();
-        s.idleZoomies = false;
-        if (s.behavior === 'SLEEPING') {
-          s.behavior = 'STRETCHING';
-          s.stretchTimer = 1.4;
-          s.scaleX = 1.08;
-          s.scaleY = 0.92;
-          soundEngine.playMeow(0.95);
+        const item = BATH_ITEMS.find((b) => b.id === bathId);
+        if (!item || s.coins < item.price) return false;
+        if (useImmediately && (s.behavior === 'SLEEPING' || s.sleepMode !== 'none' || Math.round(s.cleanliness) >= 100)) {
+          const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
+          soundEngine.playBounce();
+          spawnParticle('text', catPos.x, catPos.y - 34, {
+            label:
+              s.behavior === 'SLEEPING' || s.sleepMode !== 'none'
+                ? 'Mandi dikunci saat tidur!'
+                : 'Bersih sudah penuh (100)!',
+            color: '#FCA5A5',
+            size: 13.5,
+            vy: -26,
+            maxLife: 1.4,
+          });
+          return false;
+        }
+        s.coins -= item.price;
+        s.inventory = { ...s.inventory, [bathId]: s.inventory[bathId] + 1 };
+        soundEngine.playChime();
+        if (useImmediately) {
+          return useBathItemInternal(bathId);
+        }
+        onHudUpdate(buildSnapshot());
+        return true;
+      },
+
+      startSleep: (mode: ManualSleepMode): boolean => startSleepInternal(mode),
+
+      wakeUp: () => {
+        wakeUpInternal();
+      },
+
+      toggleSleep: () => {
+        const s = simRef.current;
+        if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+          wakeUpInternal();
         } else {
-          s.toy.active = false;
-          s.behavior = 'WALKING';
-          s.targetNx = s.bedNx;
-          s.targetNy = s.bedNy;
-          s.idleDecisionTimer = -99;
-          soundEngine.playSleep();
+          startSleepInternal('power_nap');
         }
       },
 
       tossToy: (tx?: number, ty?: number) => {
         tossToyInternal(tx, ty);
+      },
+
+      startInteractivePlay: () => {
+        tossToyInternal();
+      },
+
+      canStartMiniGame: (): boolean => canStartMiniGameInternal(true),
+
+      petCat: (kind: 'short' | 'full') => {
+        petCatInternal(kind);
       },
 
       giveMedicine: () => {
@@ -763,14 +1596,60 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         onHudUpdate(buildSnapshot());
       },
 
-      applyMiniGameReward: (coinsEarned: number, happinessGain: number) => {
+      applyMiniGameReward: (coinsEarned: number, happinessGain?: number) => {
         const s = simRef.current;
         soundEngine.unlock();
-        s.happiness = clamp(s.happiness + happinessGain, 0, 100);
-        s.energy = clamp(s.energy - 8, 0, 100);
+        const now = Date.now();
+        if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none' || Math.round(s.happiness) >= 100 || s.energy < 20) {
+          onHudUpdate(buildSnapshot());
+          return;
+        }
+        s.cooldownsUntil.miniGame = now + ACTION_DELTAS.playMiniGame.cooldownSec * 1000;
+
+        const baseHappy = happinessGain ?? ACTION_DELTAS.playMiniGame.happiness;
+        const { mult, reason } = getPlayEffectiveness();
+        const dayPhase = getDayPhaseFromHour(s.gameHour);
+        const phaseMult = getDayPhaseMultipliers(dayPhase);
+        const weatherMult = getWeatherMultipliers(s.weather);
+        const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
+        const finalHappy = Math.max(
+          5,
+          Math.round((baseHappy + weatherMult.outdoorPlayHappyBonus) * mult * phaseMult.playHappyMult)
+        );
+        const isDrowsyPenalty = drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy';
+        const energyCost =
+          Math.round(
+            Math.abs(ACTION_DELTAS.playMiniGame.energy) * (isDrowsyPenalty ? 1.15 : 1) * 10
+          ) / 10;
+        const hungerCost = Math.abs(ACTION_DELTAS.playMiniGame.hunger);
+        const cleanCost =
+          Math.abs(ACTION_DELTAS.playMiniGame.cleanliness) + weatherMult.outdoorPlayCleanPenalty;
+
+        s.happiness = clamp(s.happiness + finalHappy, 0, 100);
+        s.energy = clamp(s.energy - energyCost, 0, 100);
+        s.hunger = clamp(s.hunger - hungerCost, 0, 100);
+        s.cleanliness = clamp(s.cleanliness - cleanCost, 0, 100);
+
         const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
         addXpAndCoins(12, Math.max(0, coinsEarned), catPos.x, catPos.y);
-        if (coinsEarned > 0 || happinessGain > 0) {
+
+        const bonusTags = [
+          phaseMult.playHappyMult > 1 ? 'Siang +10%' : '',
+          s.weather === 'hujan' ? 'Hujan +5' : '',
+        ].filter(Boolean);
+        const bonusTag = bonusTags.length > 0 ? ` (${bonusTags.join(' · ')})` : '';
+        spawnParticle('text', catPos.x, catPos.y - 38, {
+          label:
+            reason !== 'none'
+              ? `+${finalHappy} Bahagia (Berkurang) · -${energyCost} Energi · -${cleanCost} Bersih`
+              : `+${finalHappy} Bahagia${bonusTag} · -${energyCost} Energi · -${hungerCost} Kenyang · -${cleanCost} Bersih`,
+          color: reason !== 'none' || isDrowsyPenalty ? '#FDE68A' : '#FBCFE8',
+          size: 13.5,
+          vy: -28,
+          maxLife: 1.6,
+        });
+
+        if (coinsEarned > 0 || finalHappy > 0) {
           soundEngine.playChime();
           for (let i = 0; i < 6; i++) {
             spawnParticle('heart_sparkle', catPos.x + (Math.random() - 0.5) * 52, catPos.y - 10, {
@@ -793,12 +1672,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.coins -= item.price;
         s.bowlAmount = 1;
         s.bowlTreatType = item.id;
-        s.hunger = clamp(s.hunger + item.hungerDelta * 0.4, 0, 100);
-        s.mealHungerRemaining = Math.max(0, Math.round(item.hungerDelta * 0.6));
-        s.pendingTreatBonus = {
-          happiness: item.happinessDelta,
-          energy: item.energyDelta,
-        };
+        s.mealHungerRemaining = item.hungerDelta;
+        s.mealHappyRemaining = item.happinessDelta;
+        s.mealEnergyRemaining = item.energyDelta;
+        s.pendingTreatBonus = { happiness: 0, energy: 0 };
         s.idleZoomies = false;
         if (s.behavior === 'SLEEPING' || s.behavior === 'ROLLING') {
           s.behavior = 'WALKING';
@@ -807,9 +1684,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.targetNy = BOWL_POS.ny;
         soundEngine.playMeow(1.15);
         soundEngine.playChime();
+        const stageRates = getStageDecayRatesPerSec(
+          s.lifeStage,
+          s.stageElapsedSec,
+          s.adultBranch,
+          hungerSpeedRef.current
+        );
         resetLowHungerNotificationAfterFeed(
-          Math.min(100, s.hunger + item.hungerDelta * 0.6),
-          OFFLINE_HUNGER_DECAY_PER_SEC
+          Math.min(100, s.hunger + item.hungerDelta),
+          stageRates.hungerPerSec
         );
         onHudUpdate(buildSnapshot());
         return true;
@@ -987,6 +1870,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           level: s.level,
           coins: s.coins,
           day: s.day,
+          gameHour: s.gameHour,
           timeOfDay: s.timeOfDay,
           weather: s.weather,
           lifeStage: s.lifeStage,
@@ -1005,6 +1889,20 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           equippedGlasses: s.equippedGlasses,
           equippedScarf: s.equippedScarf,
           unlockedAccessories: [...s.unlockedAccessories],
+          inventory: { ...s.inventory },
+          sleepMode: s.sleepMode,
+          sleepRemainingSec: s.sleepRemainingSec,
+          sleepDurationSec: s.sleepDurationSec,
+          sleepTargetEnergy: s.sleepTargetEnergy,
+          sleepTargetHappy: s.sleepTargetHappy,
+          sleepTargetHunger: s.sleepTargetHunger,
+          sleepTargetClean: s.sleepTargetClean,
+          sleepAppliedEnergy: s.sleepAppliedEnergy,
+          sleepAppliedHappy: s.sleepAppliedHappy,
+          sleepAppliedHunger: s.sleepAppliedHunger,
+          sleepAppliedClean: s.sleepAppliedClean,
+          zeroEnergyElapsedSec: s.zeroEnergyElapsedSec,
+          cooldownsUntil: { ...s.cooldownsUntil },
           bedNx: s.bedNx,
           bedNy: s.bedNy,
           lastFreeFeedAt: s.lastFreeFeedTime > 0 ? s.lastFreeFeedTime : undefined,
@@ -1047,20 +1945,33 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.brushScrubAccum = 0;
         s.brushStrokeCooldown = 0;
         s.brushHintCooldown = 0;
+        s.petActionCooldown = 0;
+        s.petRubAccum = 0;
         s.recoveryTimer = 0;
         s.starveGraceTimer = 0;
+        s.starveZeroTimer = 0;
+        s.zeroEnergyElapsedSec = 0;
+        s.autoSleepRetryTimer = 0;
+        s.lastDrowsyNoticeTier = 'fresh';
+        s.deathReason = null;
+        s.pendingOldAgeGameOver = false;
         s.affectionXp = 0;
         s.level = 1;
         s.coins = 35;
-        s.day = 1;
-        s.timeOfDay = 0.14;
+        s.day = 0;
+        s.gameHour = INITIAL_GAME_HOUR;
+        s.lastDayPhaseNotice = getDayPhaseFromHour(INITIAL_GAME_HOUR);
+        s.timeOfDay = INITIAL_GAME_HOUR / 24;
         s.weather = 'cerah';
-        s.weatherTimer = 32;
+        s.weatherTimer = 95;
         s.lightningTimer = 7.5;
         s.weatherFx.weather = 'cerah';
         s.weatherFx.prevWeather = 'cerah';
         s.weatherFx.weatherFade = 1;
         s.weatherFx.lightningFlash = 0;
+        s.weatherFx.gameHour = INITIAL_GAME_HOUR;
+        s.weatherFx.duskWeight = 0;
+        s.weatherFx.nightCycleWeight = 0;
         s.lifeStage = 'baby';
         s.stageElapsedSec = 0;
         s.careMistakes = 0;
@@ -1068,6 +1979,28 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.adultBranch = 'prima';
         s.totalCatches = 0;
         s.totalPets = 0;
+        s.inventory = { ...INITIAL_INVENTORY };
+        s.sleepMode = 'none';
+        s.sleepRemainingSec = 0;
+        s.sleepDurationSec = 0;
+        s.sleepTargetEnergy = 0;
+        s.sleepTargetHappy = 0;
+        s.sleepTargetHunger = 0;
+        s.sleepTargetClean = 0;
+        s.sleepAppliedEnergy = 0;
+        s.sleepAppliedHappy = 0;
+        s.sleepAppliedHunger = 0;
+        s.sleepAppliedClean = 0;
+        s.lastFreeBathTime = 0;
+        s.cooldownsUntil = {
+          snack: 0,
+          basicSoap: 0,
+          miniGame: 0,
+          interactivePlay: 0,
+          petShort: 0,
+          petFull: 0,
+          sleepManual: 0,
+        };
         s.activeBackground = 'classic_home';
         s.unlockedBackgrounds = ['classic_home'];
         s.activeBed = 'kasur_kucing';
@@ -1083,14 +2016,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.bedDragCandidate = false;
         s.isDraggingBed = false;
         s.bowlAmount = 0;
-        s.bowlTreatType = 'kibble';
+        s.bowlTreatType = 'snack';
         s.mealHungerRemaining = 0;
+        s.mealHappyRemaining = 0;
+        s.mealEnergyRemaining = 0;
         s.lastFreeFeedTime = 0;
         s.toy.active = false;
         s.toy.catchCooldown = 0;
+        s.playSession.active = false;
         s.idleDecisionTimer = 1.6;
         s.idleMeowTimer = 5.5;
-        resetLowHungerNotificationAfterFeed(s.hunger, OFFLINE_HUNGER_DECAY_PER_SEC);
+        const initRates = getStageDecayRatesPerSec('baby', 0, 'prima', hungerSpeedRef.current);
+        resetLowHungerNotificationAfterFeed(s.hunger, initRates.hungerPerSec);
         onHudUpdate(buildSnapshot());
       },
 
@@ -1103,16 +2040,107 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             ? save.personality
             : randomPersonality();
 
-        const offline = calculateOfflineDecay(
-          save.hunger,
-          save.health ?? 100,
-          save.lastSavedTime ?? save.savedAt
-        );
+        const validStages: LifeStage[] = ['baby', 'child', 'teen', 'adult', 'senior'];
+        const initialStage: LifeStage =
+          save.lifeStage && validStages.includes(save.lifeStage)
+            ? save.lifeStage
+            : save.day >= 12
+            ? 'senior'
+            : save.day >= 4
+            ? 'adult'
+            : 'baby';
+        const initialStageElapsed =
+          typeof save.stageElapsedSec === 'number' && Number.isFinite(save.stageElapsedSec)
+            ? Math.max(0, save.stageElapsedSec)
+            : 0;
+        const initialMistakes =
+          typeof save.careMistakes === 'number' && Number.isFinite(save.careMistakes)
+            ? Math.max(0, save.careMistakes)
+            : 0;
+        const initialBranch: AdultEvolutionBranch =
+          save.adultBranch === 'prima' ||
+          save.adultBranch === 'mandiri' ||
+          save.adultBranch === 'sensitif'
+            ? save.adultBranch
+            : 'prima';
+
+        const initialGameHour =
+          typeof save.gameHour === 'number' && Number.isFinite(save.gameHour)
+            ? ((save.gameHour % 24) + 24) % 24
+            : typeof save.timeOfDay === 'number' && Number.isFinite(save.timeOfDay)
+            ? ((save.timeOfDay * 24) % 24 + 24) % 24
+            : INITIAL_GAME_HOUR;
+
+        const loadedWeather: WeatherType = save.weather === 'hujan' ? 'hujan' : 'cerah';
+        const offline = calculateOfflineDecay({
+          hunger: save.hunger,
+          happiness: save.happiness,
+          cleanliness: save.cleanliness,
+          energy: save.energy,
+          health: save.health ?? 100,
+          lifeStage: initialStage,
+          stageElapsedSec: initialStageElapsed,
+          careMistakes: initialMistakes,
+          adultBranch: initialBranch,
+          hungerSpeed: hungerSpeedRef.current,
+          sleepMode: save.sleepMode ?? 'none',
+          sleepRemainingSec: save.sleepRemainingSec ?? 0,
+          sleepDurationSec: save.sleepDurationSec ?? 0,
+          sleepTargetEnergy: save.sleepTargetEnergy ?? 0,
+          sleepTargetHappy: save.sleepTargetHappy ?? 0,
+          sleepTargetHunger: save.sleepTargetHunger ?? 0,
+          sleepTargetClean: save.sleepTargetClean ?? 0,
+          sleepAppliedEnergy: save.sleepAppliedEnergy ?? 0,
+          sleepAppliedHappy: save.sleepAppliedHappy ?? 0,
+          sleepAppliedHunger: save.sleepAppliedHunger ?? 0,
+          sleepAppliedClean: save.sleepAppliedClean ?? 0,
+          sleepCooldownUntil: save.cooldownsUntil?.sleepManual ?? 0,
+          gameHour: initialGameHour,
+          weather: loadedWeather,
+          lastSavedTime: save.lastSavedTime ?? save.savedAt,
+        });
         s.hunger = offline.hunger;
-        s.happiness = save.happiness;
-        s.cleanliness = save.cleanliness;
-        s.energy = save.energy;
+        s.happiness = offline.happiness;
+        s.cleanliness = offline.cleanliness;
+        s.energy = offline.energy;
         s.health = offline.health;
+        s.inventory = {
+          main_food: Math.max(0, Math.floor(save.inventory?.main_food ?? 0)),
+          special_food: Math.max(0, Math.floor(save.inventory?.special_food ?? 0)),
+          shampoo_foam: Math.max(0, Math.floor(save.inventory?.shampoo_foam ?? 0)),
+          spa_bath: Math.max(0, Math.floor(save.inventory?.spa_bath ?? 0)),
+        };
+        s.sleepMode = offline.sleepMode;
+        s.sleepRemainingSec = offline.sleepRemainingSec;
+        s.sleepDurationSec = offline.sleepDurationSec;
+        s.sleepTargetEnergy = offline.sleepTargetEnergy;
+        s.sleepTargetHappy = offline.sleepTargetHappy;
+        s.sleepTargetHunger = offline.sleepTargetHunger;
+        s.sleepTargetClean = offline.sleepTargetClean;
+        s.sleepAppliedEnergy = offline.sleepAppliedEnergy;
+        s.sleepAppliedHappy = offline.sleepAppliedHappy;
+        s.sleepAppliedHunger = offline.sleepAppliedHunger;
+        s.sleepAppliedClean = offline.sleepAppliedClean;
+        s.cooldownsUntil = {
+          snack: Math.max(0, save.cooldownsUntil?.snack ?? 0),
+          basicSoap: Math.max(0, save.cooldownsUntil?.basicSoap ?? 0),
+          miniGame: Math.max(0, save.cooldownsUntil?.miniGame ?? 0),
+          interactivePlay: Math.max(0, save.cooldownsUntil?.interactivePlay ?? 0),
+          petShort: Math.max(0, save.cooldownsUntil?.petShort ?? 0),
+          petFull: Math.max(0, save.cooldownsUntil?.petFull ?? 0),
+          sleepManual: Math.max(
+            0,
+            offline.sleepCooldownUntil,
+            save.cooldownsUntil?.sleepManual ?? 0
+          ),
+        };
+        s.zeroEnergyElapsedSec =
+          s.energy <= 0.5 && typeof save.zeroEnergyElapsedSec === 'number'
+            ? Math.max(0, save.zeroEnergyElapsedSec)
+            : 0;
+        s.autoSleepRetryTimer = 0;
+        s.lastDrowsyNoticeTier = getDrowsyStage(s.energy, offline.dayPhase, loadedWeather);
+
         s.lowCleanlinessStrikes =
           typeof save.lowCleanlinessStrikes === 'number' &&
           Number.isFinite(save.lowCleanlinessStrikes)
@@ -1125,6 +2153,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.brushScrubAccum = 0;
         s.brushStrokeCooldown = 0;
         s.brushHintCooldown = 0;
+        s.petActionCooldown = 0;
+        s.petRubAccum = 0;
         if (s.cleanliness <= 0) {
           s.cleanliness = 0;
           s.health = Math.min(s.health, 44);
@@ -1135,37 +2165,26 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.isSick = s.health < 50 || Boolean(save.isSick && s.health < 50);
         s.recoveryTimer = 0;
         s.starveGraceTimer = 0;
+        s.starveZeroTimer = s.hunger <= 0 ? 10 : 0;
+        s.deathReason = offline.passedAwayOfOldAge ? 'old_age' : null;
+        s.pendingOldAgeGameOver = offline.passedAwayOfOldAge;
         s.affectionXp = save.affectionXp;
         s.level = save.level;
         s.coins = save.coins;
-        s.day = save.day;
-        s.timeOfDay = save.timeOfDay;
-        const loadedWeather: WeatherType =
-          save.weather === 'hujan' || save.weather === 'malam' || save.weather === 'cerah'
-            ? save.weather
-            : save.timeOfDay > 0.75
-            ? 'malam'
-            : 'cerah';
+        s.day = offline.day;
+        s.gameHour = offline.gameHour;
+        s.lastDayPhaseNotice = offline.dayPhase;
+        s.timeOfDay = offline.gameHour / 24;
         s.weather = loadedWeather;
-        s.weatherTimer = 30;
+        s.weatherTimer = loadedWeather === 'hujan' ? 140 : 120;
         s.lightningTimer = 7.5;
         s.weatherFx.weather = loadedWeather;
         s.weatherFx.prevWeather = loadedWeather;
         s.weatherFx.weatherFade = 1;
         s.weatherFx.lightningFlash = 0;
-        const validStages: LifeStage[] = ['baby', 'child', 'teen', 'adult', 'senior'];
-        s.lifeStage =
-          save.lifeStage && validStages.includes(save.lifeStage)
-            ? save.lifeStage
-            : save.day >= 10
-            ? 'senior'
-            : save.day >= 3
-            ? 'adult'
-            : 'baby';
-        s.stageElapsedSec =
-          typeof save.stageElapsedSec === 'number' && Number.isFinite(save.stageElapsedSec)
-            ? Math.max(0, save.stageElapsedSec)
-            : 0;
+        s.weatherFx.gameHour = offline.gameHour;
+        s.lifeStage = offline.lifeStage;
+        s.stageElapsedSec = offline.stageElapsedSec;
         s.careMistakes =
           typeof save.careMistakes === 'number' && Number.isFinite(save.careMistakes)
             ? Math.max(0, save.careMistakes)
@@ -1224,28 +2243,44 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.bedNy = clamp(save.bedNy ?? DEFAULT_BED_POS.ny, BED_BOUNDS.minY, BED_BOUNDS.maxY);
         s.bedDragCandidate = false;
         s.isDraggingBed = false;
-        s.behavior = 'IDLE';
-        s.nx = 0.52;
-        s.ny = 0.78;
+        if (s.sleepMode !== 'none') {
+          s.behavior = 'SLEEPING';
+          s.nx = s.bedNx;
+          s.ny = s.bedNy;
+          s.facing = 1;
+        } else {
+          s.behavior = 'IDLE';
+          s.nx = 0.52;
+          s.ny = 0.78;
+        }
         s.z = 0;
         s.vz = 0;
         s.idleZoomies = false;
         s.bowlAmount = 0;
-        s.bowlTreatType = 'kibble';
+        s.bowlTreatType = 'snack';
         s.mealHungerRemaining = 0;
+        s.mealHappyRemaining = 0;
+        s.mealEnergyRemaining = 0;
         s.lastFreeFeedTime =
           typeof save.lastFreeFeedAt === 'number' && Number.isFinite(save.lastFreeFeedAt)
             ? save.lastFreeFeedAt
             : 0;
         s.toy.active = false;
         s.toy.catchCooldown = 0;
+        s.playSession.active = false;
         s.idleMeowTimer = 5.5;
 
+        const loadedRates = getStageDecayRatesPerSec(
+          s.lifeStage,
+          s.stageElapsedSec,
+          s.adultBranch,
+          hungerSpeedRef.current
+        );
         setLowHungerNotifiedFlag(false);
-        if (s.hunger <= 20) {
+        if (s.hunger < 40) {
           sendLowHungerNotification();
         } else {
-          scheduleLowHungerNotification(s.hunger, OFFLINE_HUNGER_DECAY_PER_SEC);
+          scheduleLowHungerNotification(s.hunger, loadedRates.hungerPerSec);
         }
 
         if (offline.elapsedSeconds >= 60 && offline.hungerLost >= 1) {
@@ -1259,6 +2294,386 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             vy: -24,
             maxLife: 2.2,
           });
+        }
+
+        onHudUpdate(buildSnapshot());
+      },
+
+      applyDevPatch: (patch: DevStatePatch) => {
+        const s = simRef.current;
+        if (typeof patch.hunger === 'number') s.hunger = clamp(patch.hunger, 0, 100);
+        if (typeof patch.happiness === 'number') s.happiness = clamp(patch.happiness, 0, 100);
+        if (typeof patch.cleanliness === 'number') s.cleanliness = clamp(patch.cleanliness, 0, 100);
+        if (typeof patch.energy === 'number') {
+          s.energy = clamp(patch.energy, 0, 100);
+          if (s.energy > 0) {
+            s.zeroEnergyElapsedSec = 0;
+          }
+        }
+        if (typeof patch.health === 'number') {
+          s.health = clamp(patch.health, 0, 100);
+          s.isSick = s.health < 50;
+          if (!s.isSick) {
+            s.sickReason = null;
+            s.recoveryTimer = 0;
+          }
+        }
+        if (typeof patch.isSick === 'boolean') {
+          s.isSick = patch.isSick;
+          if (patch.isSick) {
+            s.health = Math.min(s.health, 42);
+            s.sickReason = patch.sickReason ?? s.sickReason ?? 'health';
+            s.recoveryTimer = 0;
+          } else {
+            s.health = Math.max(s.health, 85);
+            s.sickReason = null;
+            s.recoveryTimer = 0;
+            s.lowCleanlinessStrikes = 0;
+            s.starveZeroTimer = 0;
+            s.zeroEnergyElapsedSec = 0;
+          }
+        }
+        if (typeof patch.coins === 'number') {
+          s.coins = Math.max(0, Math.round(patch.coins));
+        }
+        if (typeof patch.level === 'number') {
+          s.level = Math.max(1, Math.round(patch.level));
+        }
+        if (typeof patch.affectionXp === 'number') {
+          s.affectionXp = Math.max(0, Math.round(patch.affectionXp));
+        }
+        if (patch.breed && patch.breed in CAT_BREEDS) {
+          s.breed = patch.breed;
+        }
+        if (patch.personality && patch.personality in PERSONALITY_MODS) {
+          s.personality = patch.personality;
+        }
+        if (typeof patch.careMistakes === 'number') {
+          s.careMistakes = Math.max(0, Math.round(patch.careMistakes));
+        }
+        if (patch.adultBranch) {
+          s.adultBranch = patch.adultBranch;
+        }
+        if (typeof patch.gameHour === 'number' && Number.isFinite(patch.gameHour)) {
+          const normHour = ((patch.gameHour % 24) + 24) % 24;
+          s.gameHour = normHour;
+          s.timeOfDay = normHour / 24;
+          s.weatherFx.gameHour = normHour;
+          s.lastDayPhaseNotice = getDayPhaseFromHour(normHour);
+        }
+        if (patch.weather) {
+          const nextW: WeatherType = patch.weather === 'hujan' ? 'hujan' : 'cerah';
+          s.weatherFx.prevWeather = s.weather;
+          s.weather = nextW;
+          s.weatherFx.weather = nextW;
+          s.weatherFx.weatherFade = 0;
+          s.weatherTimer = nextW === 'hujan' ? 160 : 180;
+        }
+        if (patch.lifeStage) {
+          s.lifeStage = patch.lifeStage;
+          s.stageElapsedSec = 0;
+          s.day = computeCalendarDayAndHour(patch.lifeStage, 0).day;
+        }
+        if (typeof patch.stageProgressPct === 'number') {
+          const pct = clamp(patch.stageProgressPct, 0, 99.5) / 100;
+          s.stageElapsedSec = LIFE_STAGES[s.lifeStage].durationSec * pct;
+          s.day = computeCalendarDayAndHour(s.lifeStage, s.stageElapsedSec).day;
+        }
+        if (typeof patch.day === 'number' && Number.isFinite(patch.day)) {
+          const targetDay = Math.max(0, Math.min(18, Math.round(patch.day)));
+          if (targetDay === 0) {
+            s.lifeStage = 'baby';
+            s.stageElapsedSec = 0;
+          } else if (targetDay === 1) {
+            s.lifeStage = 'child';
+            s.stageElapsedSec = 0;
+          } else if (targetDay <= 3) {
+            s.lifeStage = 'teen';
+            s.stageElapsedSec = (targetDay - 2) * 86400;
+          } else if (targetDay <= 11) {
+            s.lifeStage = 'adult';
+            s.stageElapsedSec = (targetDay - 4) * 86400;
+          } else {
+            s.lifeStage = 'senior';
+            s.stageElapsedSec = (targetDay - 12) * 86400;
+          }
+          s.day = targetDay;
+        }
+        if (typeof patch.bowlAmount === 'number') {
+          s.bowlAmount = clamp(patch.bowlAmount, 0, 1);
+          if (s.bowlAmount > 0 && s.mealHungerRemaining <= 0) {
+            s.mealHungerRemaining = 25;
+            s.mealHappyRemaining = 5;
+          }
+        }
+        if (patch.inventory) {
+          s.inventory = { ...s.inventory, ...patch.inventory };
+        }
+
+        s.lastDrowsyNoticeTier = getDrowsyStage(
+          s.energy,
+          getDayPhaseFromHour(s.gameHour),
+          s.weather
+        );
+        if (s.hunger >= 40) {
+          const rates = getStageDecayRatesPerSec(
+            s.lifeStage,
+            s.stageElapsedSec,
+            s.adultBranch,
+            hungerSpeedRef.current
+          );
+          resetLowHungerNotificationAfterFeed(s.hunger, rates.hungerPerSec);
+        }
+        onHudUpdate(buildSnapshot());
+      },
+
+      devAction: (action: DevQuickAction) => {
+        const s = simRef.current;
+        const now = Date.now();
+        const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
+
+        const advanceOfflineBySec = (sec: number, label: string) => {
+          const offline = calculateOfflineDecay({
+            hunger: s.hunger,
+            happiness: s.happiness,
+            cleanliness: s.cleanliness,
+            energy: s.energy,
+            health: s.health,
+            lifeStage: s.lifeStage,
+            stageElapsedSec: s.stageElapsedSec,
+            careMistakes: s.careMistakes,
+            adultBranch: s.adultBranch,
+            hungerSpeed: hungerSpeedRef.current,
+            sleepMode: s.sleepMode,
+            sleepRemainingSec: s.sleepRemainingSec,
+            sleepDurationSec: s.sleepDurationSec,
+            sleepTargetEnergy: s.sleepTargetEnergy,
+            sleepTargetHappy: s.sleepTargetHappy,
+            sleepTargetHunger: s.sleepTargetHunger,
+            sleepTargetClean: s.sleepTargetClean,
+            sleepAppliedEnergy: s.sleepAppliedEnergy,
+            sleepAppliedHappy: s.sleepAppliedHappy,
+            sleepAppliedHunger: s.sleepAppliedHunger,
+            sleepAppliedClean: s.sleepAppliedClean,
+            sleepCooldownUntil: s.cooldownsUntil.sleepManual,
+            gameHour: s.gameHour,
+            weather: s.weather,
+            lastSavedTime: now - sec * 1000,
+            now,
+          });
+          s.hunger = offline.hunger;
+          s.happiness = offline.happiness;
+          s.cleanliness = offline.cleanliness;
+          s.energy = offline.energy;
+          s.health = offline.health;
+          s.isSick = s.health < 50;
+          s.lifeStage = offline.lifeStage;
+          s.stageElapsedSec = offline.stageElapsedSec;
+          s.adultBranch = offline.adultBranch;
+          s.day = offline.day;
+          s.gameHour = offline.gameHour;
+          s.timeOfDay = offline.gameHour / 24;
+          s.weatherFx.gameHour = offline.gameHour;
+          s.lastDayPhaseNotice = offline.dayPhase;
+          s.sleepMode = offline.sleepMode;
+          s.sleepRemainingSec = offline.sleepRemainingSec;
+          s.sleepDurationSec = offline.sleepDurationSec;
+          s.sleepTargetEnergy = offline.sleepTargetEnergy;
+          s.sleepTargetHappy = offline.sleepTargetHappy;
+          s.sleepTargetHunger = offline.sleepTargetHunger;
+          s.sleepTargetClean = offline.sleepTargetClean;
+          s.sleepAppliedEnergy = offline.sleepAppliedEnergy;
+          s.sleepAppliedHappy = offline.sleepAppliedHappy;
+          s.sleepAppliedHunger = offline.sleepAppliedHunger;
+          s.sleepAppliedClean = offline.sleepAppliedClean;
+          if (s.sleepMode === 'none' && s.behavior === 'SLEEPING') {
+            s.behavior = 'IDLE';
+          }
+          if (offline.passedAwayOfOldAge) {
+            s.deathReason = 'old_age';
+            s.pendingOldAgeGameOver = true;
+          }
+          spawnParticle('text', catPos.x, catPos.y - 38, {
+            label: `[DEV] ${label}`,
+            color: '#FDE68A',
+            size: 13.5,
+            vy: -26,
+            maxLife: 1.5,
+          });
+        };
+
+        switch (action) {
+          case 'reset_cooldowns':
+            s.cooldownsUntil = {
+              snack: 0,
+              basicSoap: 0,
+              miniGame: 0,
+              interactivePlay: 0,
+              petShort: 0,
+              petFull: 0,
+              sleepManual: 0,
+            };
+            s.lastFreeFeedTime = 0;
+            s.lastFreeBathTime = 0;
+            s.autoSleepRetryTimer = 0;
+            soundEngine.playChime();
+            spawnParticle('text', catPos.x, catPos.y - 34, {
+              label: '[DEV] Semua Cooldown Direset',
+              color: '#A7F3D0',
+              size: 13.5,
+              vy: -26,
+              maxLife: 1.4,
+            });
+            break;
+
+          case 'unlock_all_shop':
+            s.unlockedBackgrounds = ROOM_BACKGROUNDS.map((b) => b.id);
+            s.unlockedBeds = CAT_BEDS.map((b) => b.id);
+            s.unlockedToys = CAT_TOYS.map((t) => t.id);
+            s.unlockedAccessories = CAT_ACCESSORIES.map((a) => a.id);
+            soundEngine.playChime();
+            spawnParticle('text', catPos.x, catPos.y - 34, {
+              label: '[DEV] Semua Item Shop Terbuka!',
+              color: '#FDE68A',
+              size: 13.5,
+              vy: -26,
+              maxLife: 1.4,
+            });
+            break;
+
+          case 'fill_inventory':
+            s.inventory = {
+              main_food: s.inventory.main_food + 5,
+              special_food: s.inventory.special_food + 5,
+              shampoo_foam: s.inventory.shampoo_foam + 5,
+              spa_bath: s.inventory.spa_bath + 5,
+            };
+            soundEngine.playChime();
+            spawnParticle('text', catPos.x, catPos.y - 34, {
+              label: '[DEV] +5 Semua Stok Makanan & Mandi',
+              color: '#A7F3D0',
+              size: 13.5,
+              vy: -26,
+              maxLife: 1.4,
+            });
+            break;
+
+          case 'advance_time_10m':
+            advanceOfflineBySec(600, 'Simulasi +10 Menit Nyata');
+            break;
+
+          case 'advance_time_1h':
+            advanceOfflineBySec(3600, 'Simulasi +1 Jam Nyata');
+            break;
+
+          case 'advance_time_6h':
+            advanceOfflineBySec(21600, 'Simulasi +6 Jam Nyata');
+            break;
+
+          case 'evolve_next':
+            if (s.lifeStage === 'baby') {
+              s.lifeStage = 'child';
+              s.stageElapsedSec = 0;
+              s.day = 1;
+              celebrateStageEvolution('child', 'Mini-Game Terbuka');
+            } else if (s.lifeStage === 'child') {
+              s.lifeStage = 'teen';
+              s.stageElapsedSec = 0;
+              s.day = 2;
+              celebrateStageEvolution('teen');
+            } else if (s.lifeStage === 'teen') {
+              const branch: AdultEvolutionBranch =
+                s.careMistakes <= 2 ? 'prima' : s.careMistakes <= 5 ? 'mandiri' : 'sensitif';
+              s.adultBranch = branch;
+              s.lifeStage = 'adult';
+              s.stageElapsedSec = 0;
+              s.day = 4;
+              celebrateStageEvolution(
+                'adult',
+                branch === 'prima'
+                  ? 'Dewasa Prima'
+                  : branch === 'mandiri'
+                  ? 'Dewasa Mandiri'
+                  : 'Dewasa Sensitif'
+              );
+            } else if (s.lifeStage === 'adult') {
+              s.lifeStage = 'senior';
+              s.stageElapsedSec = 0;
+              s.day = 12;
+              celebrateStageEvolution('senior');
+            } else {
+              s.deathReason = 'old_age';
+              s.pendingOldAgeGameOver = true;
+            }
+            break;
+
+          case 'trigger_auto_sleep':
+            s.energy = 0;
+            s.autoSleepRetryTimer = 0;
+            if (s.behavior === 'SLEEPING') {
+              s.behavior = 'IDLE';
+              s.sleepMode = 'none';
+            }
+            break;
+
+          case 'wake_up_free':
+            s.sleepMode = 'none';
+            s.sleepRemainingSec = 0;
+            s.sleepDurationSec = 0;
+            s.sleepTargetEnergy = 0;
+            s.sleepTargetHappy = 0;
+            s.sleepTargetHunger = 0;
+            s.sleepTargetClean = 0;
+            s.sleepAppliedEnergy = 0;
+            s.sleepAppliedHappy = 0;
+            s.sleepAppliedHunger = 0;
+            s.sleepAppliedClean = 0;
+            s.behavior = 'IDLE';
+            s.idleDecisionTimer = 1.5;
+            soundEngine.playChime();
+            break;
+
+          case 'trigger_lightning':
+            if (s.weather !== 'hujan') {
+              s.weatherFx.prevWeather = s.weather;
+              s.weather = 'hujan';
+              s.weatherFx.weather = 'hujan';
+              s.weatherFx.weatherFade = 0;
+              s.weatherTimer = 150;
+            }
+            s.weatherFx.lightningFlash = 0.95;
+            break;
+
+          case 'heal_instant':
+            s.health = 100;
+            s.isSick = false;
+            s.sickReason = null;
+            s.recoveryTimer = 0;
+            s.lowCleanlinessStrikes = 0;
+            s.starveZeroTimer = 0;
+            s.zeroEnergyElapsedSec = 0;
+            soundEngine.playChime();
+            spawnParticle('text', catPos.x, catPos.y - 34, {
+              label: '[DEV] Sehat Sempurna (100)',
+              color: '#6EE7B7',
+              size: 13.5,
+              vy: -26,
+              maxLife: 1.4,
+            });
+            break;
+
+          case 'force_game_over_sick':
+            s.health = 0;
+            s.isSick = true;
+            s.deathReason = 'sickness';
+            break;
+
+          case 'force_game_over_old':
+            s.lifeStage = 'senior';
+            s.day = 18;
+            s.deathReason = 'old_age';
+            s.pendingOldAgeGameOver = true;
+            break;
         }
 
         onHudUpdate(buildSnapshot());
@@ -1324,8 +2739,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const s = simRef.current;
         const gState = gameStateRef.current;
 
-        if (gState === 'PLAYING' && s.health > 5) {
+        if (gState === 'PLAYING' && s.health > 5 && !s.pendingOldAgeGameOver) {
           gameOverFired = false;
+        }
+        if (gState === 'PLAYING' && s.pendingOldAgeGameOver && !gameOverFired) {
+          s.pendingOldAgeGameOver = false;
+          s.deathReason = 'old_age';
+          gameOverFired = true;
+          clearLowHungerNotificationSchedule();
+          onGameOver(buildSnapshot());
+          return;
         }
 
         const viewW = window.innerWidth;
@@ -1339,6 +2762,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           } else {
             s.time += dt;
             s.petCoinCooldown = Math.max(0, s.petCoinCooldown - dt);
+            s.petActionCooldown = Math.max(0, s.petActionCooldown - dt);
             s.brushCoinCooldown = Math.max(0, s.brushCoinCooldown - dt);
             s.brushStrokeCooldown = Math.max(0, s.brushStrokeCooldown - dt);
             s.brushHintCooldown = Math.max(0, s.brushHintCooldown - dt);
@@ -1372,31 +2796,166 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             }
 
             if (gState === 'PLAYING') {
-              stepWeatherFx(s.weatherFx, dt, s.activeBackground);
+              const tScale = Math.max(1, devTimeScaleRef.current);
+              const simDt = dt * tScale;
 
-              const targetTod =
-                s.weather === 'malam' ? 0.88 : s.weather === 'hujan' ? 0.56 : 0.22;
-              s.timeOfDay += (targetTod - s.timeOfDay) * Math.min(1, dt * 0.45);
+              if (tScale > 1) {
+                const shiftMs = (tScale - 1) * dt * 1000;
+                const keys = Object.keys(s.cooldownsUntil) as Array<keyof typeof s.cooldownsUntil>;
+                const nowMs = Date.now();
+                for (const k of keys) {
+                  if (s.cooldownsUntil[k] > nowMs) {
+                    s.cooldownsUntil[k] = Math.max(nowMs, s.cooldownsUntil[k] - shiftMs);
+                  }
+                }
+              }
+
+              // Siklus 24 jam game (60 menit nyata = 3 hari game / 73 jam -> ~49,3 detik nyata / jam game)
+              s.gameHour = (s.gameHour + simDt * GAME_HOURS_PER_REAL_SEC) % 24;
+              s.timeOfDay = s.gameHour / 24;
+              stepWeatherFx(s.weatherFx, dt, s.activeBackground, s.gameHour);
+
+              const currentDayPhase = getDayPhaseFromHour(s.gameHour);
+              if (currentDayPhase !== s.lastDayPhaseNotice) {
+                s.lastDayPhaseNotice = currentDayPhase;
+                const phaseBanner =
+                  currentDayPhase === 'pagi'
+                    ? 'Pagi tiba (06:00) · Bonus tidur +10% Energi'
+                    : currentDayPhase === 'siang'
+                    ? 'Siang tiba (12:00) · Main +10% Bahagia'
+                    : 'Malam tiba (18:00) · Bonus tidur +20% Energi';
+                const phaseColor =
+                  currentDayPhase === 'malam' ? '#C4B5FD' : '#FDE68A';
+                spawnParticle('text', viewW * 0.5, Math.max(82, viewH * 0.18), {
+                  label: phaseBanner,
+                  color: phaseColor,
+                  size: 14,
+                  vx: 0,
+                  vy: -16,
+                  maxLife: 2.2,
+                });
+              }
 
               if (s.weather === 'hujan') {
-                s.lightningTimer -= dt;
+                s.lightningTimer -= simDt;
                 if (s.lightningTimer <= 0) {
                   s.lightningTimer = 6.5 + Math.random() * 8.0;
                   s.weatherFx.lightningFlash = 0.85;
                 }
               }
 
-              s.weatherTimer -= dt;
+              s.weatherTimer -= simDt;
               if (s.weatherTimer <= 0) {
                 const prevW = s.weather;
-                let nextWeather: WeatherType = 'cerah';
-                if (prevW === 'cerah') {
-                  nextWeather = Math.random() < 0.58 ? 'hujan' : 'malam';
-                } else if (prevW === 'hujan') {
-                  nextWeather = Math.random() < 0.55 ? 'malam' : 'cerah';
-                } else {
-                  nextWeather = 'cerah';
-                  s.day += 1;
+                const nextWeather: WeatherType =
+                  prevW === 'cerah' ? (Math.random() < 0.65 ? 'hujan' : 'cerah') : 'cerah';
+
+                s.weatherFx.prevWeather = prevW;
+                s.weather = nextWeather;
+                s.weatherFx.weather = nextWeather;
+                s.weatherFx.weatherFade = 0;
+                // Durasi hujan & cerah beberapa menit nyata (2–3,5 menit nyata)
+                s.weatherTimer =
+                  nextWeather === 'hujan'
+                    ? 120 + Math.random() * 60
+                    : 130 + Math.random() * 80;
+
+                if (nextWeather !== prevW) {
+                  const phaseLabelNotice =
+                    currentDayPhase === 'pagi'
+                      ? 'Pagi'
+                      : currentDayPhase === 'malam'
+                      ? 'Malam'
+                      : 'Siang';
+                  spawnParticle('text', viewW * 0.5, Math.max(82, viewH * 0.18), {
+                    label:
+                      nextWeather === 'hujan'
+                        ? `Hujan ${phaseLabelNotice} turun · Tidur +10% Energi`
+                        : `Hujan reda · Langit ${phaseLabelNotice} cerah`,
+                    color: nextWeather === 'hujan' ? '#93C5FD' : '#FDE68A',
+                    size: 14,
+                    vx: 0,
+                    vy: -16,
+                    maxLife: 2.2,
+                  });
+                }
+              }
+
+              // Tahap Pertumbuhan (Life Stages), Kalender Game & Care Mistakes
+              s.stageElapsedSec += simDt;
+              s.careMistakeCooldown = Math.max(0, s.careMistakeCooldown - simDt);
+
+              if (
+                (s.lifeStage === 'child' || s.lifeStage === 'teen') &&
+                s.careMistakeCooldown <= 0 &&
+                (s.hunger < 20 || s.cleanliness < 20 || s.happiness < 20 || s.isSick)
+              ) {
+                s.careMistakes += 1;
+                s.careMistakeCooldown = 45;
+              }
+
+              let transitionedStage = false;
+              if (s.lifeStage === 'baby' && s.stageElapsedSec >= LIFE_STAGES.baby.durationSec) {
+                s.lifeStage = 'child';
+                s.stageElapsedSec = 0;
+                s.day = 1;
+                transitionedStage = true;
+                celebrateStageEvolution('child', 'Mini-Game Terbuka');
+              } else if (
+                s.lifeStage === 'child' &&
+                s.stageElapsedSec >= LIFE_STAGES.child.durationSec
+              ) {
+                s.lifeStage = 'teen';
+                s.stageElapsedSec = 0;
+                s.day = 2;
+                transitionedStage = true;
+                celebrateStageEvolution('teen');
+              } else if (
+                s.lifeStage === 'teen' &&
+                s.stageElapsedSec >= LIFE_STAGES.teen.durationSec
+              ) {
+                const branch: AdultEvolutionBranch =
+                  s.careMistakes <= 2 ? 'prima' : s.careMistakes <= 5 ? 'mandiri' : 'sensitif';
+                s.adultBranch = branch;
+                s.lifeStage = 'adult';
+                s.stageElapsedSec = 0;
+                s.day = 4;
+                transitionedStage = true;
+                const branchTitle =
+                  branch === 'prima'
+                    ? 'Dewasa Prima'
+                    : branch === 'mandiri'
+                    ? 'Dewasa Mandiri'
+                    : 'Dewasa Sensitif';
+                celebrateStageEvolution('adult', branchTitle);
+              } else if (
+                s.lifeStage === 'adult' &&
+                s.stageElapsedSec >= LIFE_STAGES.adult.durationSec
+              ) {
+                s.lifeStage = 'senior';
+                s.stageElapsedSec = 0;
+                s.day = 12;
+                transitionedStage = true;
+                celebrateStageEvolution('senior');
+              } else if (
+                s.lifeStage === 'senior' &&
+                s.stageElapsedSec >= LIFE_STAGES.senior.durationSec &&
+                !gameOverFired
+              ) {
+                s.deathReason = 'old_age';
+                gameOverFired = true;
+                clearLowHungerNotificationSchedule();
+                onGameOver(buildSnapshot());
+              }
+
+              // Kalender Game (Baby: Hari 0-3 / Jam 0-73, Child: 1, Teen: 2-3, Adult: 4-11, Senior: 12-18)
+              if (!transitionedStage && !gameOverFired) {
+                const { day: nextCalDay } = computeCalendarDayAndHour(
+                  s.lifeStage,
+                  s.stageElapsedSec
+                );
+                if (nextCalDay > s.day) {
+                  s.day = nextCalDay;
                   s.coins += 10;
                   soundEngine.playChime();
                   const pos = roomToScreen(s.nx, s.ny - 0.1, rt);
@@ -1408,112 +2967,121 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     maxLife: 1.8,
                   });
                 }
+              }
 
-                s.weatherFx.prevWeather = prevW;
-                s.weather = nextWeather;
-                s.weatherFx.weather = nextWeather;
-                s.weatherFx.weatherFade = 0;
-                s.weatherTimer = 30 + Math.random() * 14;
+              const rates = getStageDecayRatesPerSec(
+                s.lifeStage,
+                s.stageElapsedSec,
+                s.adultBranch,
+                hungerSpeedRef.current
+              );
+              const dayPhase = getDayPhaseFromHour(s.gameHour);
+              const phaseMult = getDayPhaseMultipliers(dayPhase);
+              const weatherMult = getWeatherMultipliers(s.weather);
+              const pMod = PERSONALITY_MODS[s.personality];
+              // Efek Stres: jika bahagia < 20, penurunan kenyang & energi lebih cepat
+              const stressMult = s.happiness < 20 ? 1.35 : 1.0;
 
-                const weatherNotice =
-                  nextWeather === 'hujan'
-                    ? 'Cuaca: Hujan turun'
-                    : nextWeather === 'malam'
-                    ? 'Cuaca: Malam tiba'
-                    : 'Cuaca: Pagi cerah';
-                const weatherColor =
-                  nextWeather === 'hujan'
-                    ? '#93C5FD'
-                    : nextWeather === 'malam'
-                    ? '#C4B5FD'
-                    : '#FDE68A';
-                spawnParticle('text', viewW * 0.5, Math.max(82, viewH * 0.18), {
-                  label: weatherNotice,
-                  color: weatherColor,
-                  size: 14,
-                  vx: 0,
-                  vy: -16,
-                  maxLife: 2.0,
+              if (s.autoSleepRetryTimer > 0) {
+                s.autoSleepRetryTimer = Math.max(0, s.autoSleepRetryTimer - simDt);
+              }
+
+              // Track durasi Energi == 0 untuk pemicu Overwork (>= 10 menit nyata)
+              if (s.energy <= 0.5) {
+                s.zeroEnergyElapsedSec += simDt;
+              } else if (s.energy >= 5) {
+                s.zeroEnergyElapsedSec = 0;
+              }
+
+              if (
+                s.zeroEnergyElapsedSec >= OVERWORK_SICK_SECONDS &&
+                !s.isSick &&
+                s.recoveryTimer <= 0
+              ) {
+                s.health = Math.min(s.health, 44);
+                s.isSick = true;
+                s.sickReason = 'overwork';
+                s.zeroEnergyElapsedSec = 0;
+                soundEngine.playMeow(0.76);
+                const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+                spawnParticle('text', catPos.x, catPos.y - 36, {
+                  label: 'Overwork! Energi 0 terlalu lama — Kucing jatuh sakit!',
+                  color: '#FCA5A5',
+                  size: 13.5,
+                  vy: -26,
+                  maxLife: 1.9,
                 });
               }
 
-              // Tahap Pertumbuhan (Life Stages) & Care Mistakes
-              s.stageElapsedSec += dt;
-              s.careMistakeCooldown = Math.max(0, s.careMistakeCooldown - dt);
-
-              if (
-                (s.lifeStage === 'child' || s.lifeStage === 'teen') &&
-                s.careMistakeCooldown <= 0 &&
-                (s.hunger < 15 || s.cleanliness < 15 || s.happiness < 15 || s.isSick)
-              ) {
-                s.careMistakes += 1;
-                s.careMistakeCooldown = 40;
-              }
-
-              if (s.lifeStage === 'baby' && s.stageElapsedSec >= LIFE_STAGES.baby.durationSec) {
-                s.lifeStage = 'child';
-                s.stageElapsedSec = 0;
-                celebrateStageEvolution('child', 'Mini-Game Terbuka');
-              } else if (
-                s.lifeStage === 'child' &&
-                s.stageElapsedSec >= LIFE_STAGES.child.durationSec
-              ) {
-                s.lifeStage = 'teen';
-                s.stageElapsedSec = 0;
-                celebrateStageEvolution('teen');
-              } else if (
-                s.lifeStage === 'teen' &&
-                s.stageElapsedSec >= LIFE_STAGES.teen.durationSec
-              ) {
-                const branch: AdultEvolutionBranch =
-                  s.careMistakes <= 2 ? 'prima' : s.careMistakes <= 5 ? 'mandiri' : 'sensitif';
-                s.adultBranch = branch;
-                s.lifeStage = 'adult';
-                s.stageElapsedSec = 0;
-                const branchTitle =
-                  branch === 'prima'
-                    ? 'Dewasa Prima'
-                    : branch === 'mandiri'
-                    ? 'Dewasa Mandiri'
-                    : 'Dewasa Sensitif';
-                celebrateStageEvolution('adult', branchTitle);
-              } else if (s.lifeStage === 'adult' && s.day >= 10) {
-                s.lifeStage = 'senior';
-                s.stageElapsedSec = 0;
-                celebrateStageEvolution('senior');
-              }
-
-              const stageDecayMult =
-                s.lifeStage === 'baby'
-                  ? 1.45
-                  : s.lifeStage === 'child'
-                  ? 1.1
-                  : s.lifeStage === 'teen'
-                  ? 1.05
-                  : s.lifeStage === 'senior'
-                  ? 1.38
-                  : s.adultBranch === 'prima'
-                  ? 0.85
-                  : 1.0;
-
-              const baseHungerDecay =
-                (hungerSpeedRef.current === 'santai' ? 0.16 : 0.28) * stageDecayMult;
-              const pMod = PERSONALITY_MODS[s.personality];
-              // Efek Stres: jika bahagia < 20, penurunan kenyang & energi 1.5x lebih cepat
-              const stressMult = s.happiness < 20 ? 1.5 : 1.0;
-
               if (s.behavior === 'SLEEPING') {
-                // Saat tidur, energi pulih cepat (+2.5/detik) hingga 100
-                s.energy = clamp(s.energy + dt * 2.5, 0, 100);
-                s.hunger = clamp(s.hunger - dt * baseHungerDecay * 0.5 * stressMult, 0, 100);
-                const sleepHappyPenalty =
-                  (s.hunger < 25 ? 0.4 : 0) + (s.cleanliness < 25 ? 0.3 : 0);
-                s.happiness = clamp(
-                  s.happiness - dt * (0.12 * stageDecayMult + sleepHappyPenalty),
-                  0,
-                  100
-                );
-                s.cleanliness = clamp(s.cleanliness - dt * 0.12 * stageDecayMult, 0, 100);
+                if (s.sleepMode !== 'none' && s.sleepDurationSec > 0) {
+                  const stepSec = Math.min(simDt, s.sleepRemainingSec);
+                  s.sleepRemainingSec = Math.max(0, s.sleepRemainingSec - stepSec);
+                  const eStep = (s.sleepTargetEnergy / s.sleepDurationSec) * stepSec;
+                  const hStep = (s.sleepTargetHappy / s.sleepDurationSec) * stepSec;
+                  const hunStep = (s.sleepTargetHunger / s.sleepDurationSec) * stepSec;
+                  const clnStep = (s.sleepTargetClean / s.sleepDurationSec) * stepSec;
+
+                  s.energy = clamp(s.energy + eStep, 0, 100);
+                  s.happiness = clamp(s.happiness + hStep, 0, 100);
+                  s.hunger = clamp(s.hunger + hunStep, 0, 100);
+                  s.cleanliness = clamp(s.cleanliness + clnStep, 0, 100);
+
+                  s.sleepAppliedEnergy += eStep;
+                  s.sleepAppliedHappy += hStep;
+                  s.sleepAppliedHunger += hunStep;
+                  s.sleepAppliedClean += clnStep;
+
+                  s.hunger = clamp(
+                    s.hunger -
+                      simDt *
+                        rates.hungerPerSec *
+                        phaseMult.hunger *
+                        weatherMult.idleOrSleepHunger *
+                        0.25 *
+                        stressMult,
+                    0,
+                    100
+                  );
+                  s.cleanliness = clamp(
+                    s.cleanliness - simDt * rates.cleanlinessPerSec * phaseMult.cleanliness * 0.25,
+                    0,
+                    100
+                  );
+                } else {
+                  s.energy = clamp(s.energy + simDt * 1.4 * weatherMult.sleepEnergyMult, 0, 100);
+                  s.hunger = clamp(
+                    s.hunger -
+                      simDt *
+                        rates.hungerPerSec *
+                        phaseMult.hunger *
+                        weatherMult.idleOrSleepHunger *
+                        0.5 *
+                        stressMult,
+                    0,
+                    100
+                  );
+                  const rainHappyFactor =
+                    s.hunger < 40 || s.cleanliness < 40
+                      ? weatherMult.indoorHappyBadStats
+                      : weatherMult.indoorHappyNormal;
+                  const baseSleepHappy =
+                    rates.happinessPerSec * phaseMult.happiness * rainHappyFactor;
+                  const sleepHappyPenalty =
+                    ((s.hunger < 40 ? baseSleepHappy * 0.4 : 0) +
+                      (s.cleanliness < 40 ? 0.015 : 0)) *
+                    rainHappyFactor;
+                  s.happiness = clamp(
+                    s.happiness - simDt * (baseSleepHappy * 0.5 + sleepHappyPenalty),
+                    0,
+                    100
+                  );
+                  s.cleanliness = clamp(
+                    s.cleanliness - simDt * rates.cleanlinessPerSec * phaseMult.cleanliness * 0.5,
+                    0,
+                    100
+                  );
+                }
 
                 s.zzzTimer -= dt;
                 if (s.zzzTimer <= 0) {
@@ -1546,83 +3114,246 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   );
                 }
 
-                if (s.energy >= 100) {
+                if (s.sleepMode !== 'none' && s.sleepRemainingSec <= 0) {
+                  const remE = Math.max(0, s.sleepTargetEnergy - s.sleepAppliedEnergy);
+                  const remH = Math.max(0, s.sleepTargetHappy - s.sleepAppliedHappy);
+                  const remHun = Math.min(0, s.sleepTargetHunger - s.sleepAppliedHunger);
+                  const remCln = Math.min(0, s.sleepTargetClean - s.sleepAppliedClean);
+                  s.energy = clamp(s.energy + remE, 0, 100);
+                  s.happiness = clamp(s.happiness + remH, 0, 100);
+                  s.hunger = clamp(s.hunger + remHun, 0, 100);
+                  s.cleanliness = clamp(s.cleanliness + remCln, 0, 100);
+
+                  const completedMode = s.sleepMode;
+                  const doneEnergyGain = Math.round(s.sleepTargetEnergy);
+                  const doneHappyGain = Math.round(s.sleepTargetHappy);
+                  if (completedMode === 'power_nap' || completedMode === 'full_rest') {
+                    const opt = SLEEP_OPTIONS.find((o) => o.id === completedMode);
+                    const cdSec =
+                      opt?.cooldownAfterWakeSec ?? (completedMode === 'power_nap' ? 180 : 300);
+                    s.cooldownsUntil.sleepManual = Date.now() + cdSec * 1000;
+                  }
+
+                  s.sleepMode = 'none';
+                  s.sleepRemainingSec = 0;
+                  s.sleepDurationSec = 0;
+                  s.sleepTargetEnergy = 0;
+                  s.sleepTargetHappy = 0;
+                  s.sleepTargetHunger = 0;
+                  s.sleepTargetClean = 0;
+                  s.sleepAppliedEnergy = 0;
+                  s.sleepAppliedHappy = 0;
+                  s.sleepAppliedHunger = 0;
+                  s.sleepAppliedClean = 0;
+                  s.behavior = 'STRETCHING';
+                  s.stretchTimer = 1.4;
+                  s.idleDecisionTimer = 2.0;
+                  soundEngine.playMeow(1.04);
+                  soundEngine.playChime();
+                  const cPos = roomToScreen(s.nx, s.ny - 0.08, rt);
+                  spawnParticle('text', cPos.x, cPos.y - 36, {
+                    label:
+                      completedMode === 'auto_sleep'
+                        ? `Auto-Sleep selesai! Energi pulih +${doneEnergyGain}`
+                        : completedMode === 'power_nap'
+                        ? `Power Nap selesai! +${doneEnergyGain} Energi · +${doneHappyGain} Bahagia`
+                        : `Tidur Penuh selesai! +${doneEnergyGain} Energi · +${doneHappyGain} Bahagia`,
+                    color: '#BFDBFE',
+                    size: 13.5,
+                    vy: -28,
+                    maxLife: 1.8,
+                  });
+                } else if (s.sleepMode === 'none' && s.energy >= 100) {
                   s.energy = 100;
                   s.behavior = 'STRETCHING';
                   s.stretchTimer = 1.4;
+                  s.idleDecisionTimer = 2.0;
                   soundEngine.playMeow(1.02);
                 }
               } else {
+                // Mode siklus normal Pagi–Siang–Malam + Cuaca Hujan sesuai fase usia
                 const isBallPlay = s.behavior === 'PLAYING' && s.toy.active;
-                const toyOpt = getToyOption(s.activeToy);
-                const playEnergyMult = isBallPlay ? toyOpt.energyDrainMult : 1.0;
-                const playHungerMult = isBallPlay ? toyOpt.hungerDrainMult : 1.0;
-                const hungryEnergyMult = s.hunger <= 10 ? 2.8 : s.hunger <= 30 ? 2.1 : 1.0;
-                const baseEnergyDrain = 0.45 * pMod.energyDrain * stageDecayMult;
-                const sensitiveHappyMult =
-                  s.lifeStage === 'adult' && s.adultBranch === 'sensitif' ? 1.15 : 1.0;
+                const hungryEnergyMult = s.hunger <= 0 ? 1.7 : s.hunger < 20 ? 1.35 : 1.0;
+                const isColdIdle =
+                  s.behavior === 'IDLE' ||
+                  s.behavior === 'GROOMING' ||
+                  s.behavior === 'PURRING' ||
+                  s.behavior === 'STRETCHING' ||
+                  s.behavior === 'ROLLING';
+                const coldHungerMult = isColdIdle ? weatherMult.idleOrSleepHunger : 1.0;
 
                 s.hunger = clamp(
-                  s.hunger - dt * baseHungerDecay * playHungerMult * stressMult,
+                  s.hunger - simDt * rates.hungerPerSec * phaseMult.hunger * coldHungerMult * stressMult,
                   0,
                   100
                 );
-                s.cleanliness = clamp(s.cleanliness - dt * 0.28 * stageDecayMult, 0, 100);
-                s.energy = clamp(
-                  s.energy - dt * baseEnergyDrain * playEnergyMult * hungryEnergyMult * stressMult,
+                s.cleanliness = clamp(
+                  s.cleanliness - simDt * rates.cleanlinessPerSec * phaseMult.cleanliness,
                   0,
                   100
                 );
 
-                // Dampak ke Bahagia
-                if (isBallPlay) {
-                  s.happiness = clamp(
-                    s.happiness + dt * 1.6 * toyOpt.happinessRateMult * pMod.ballHappy,
+                if (isBallPlay && s.playSession.active) {
+                  const happyRem = Math.max(
+                    0,
+                    s.playSession.targetHappiness - s.playSession.appliedHappiness
+                  );
+                  const energyRem = Math.max(
+                    0,
+                    s.playSession.targetEnergyCost - s.playSession.appliedEnergyCost
+                  );
+                  const hungerRem = Math.max(
+                    0,
+                    s.playSession.targetHungerCost - s.playSession.appliedHungerCost
+                  );
+                  const cleanRem = Math.max(
+                    0,
+                    s.playSession.targetCleanCost - s.playSession.appliedCleanCost
+                  );
+
+                  const hStep = Math.min(
+                    happyRem,
+                    (s.playSession.targetHappiness / PLAY_SESSION_SECONDS) * dt
+                  );
+                  const eStep = Math.min(
+                    energyRem,
+                    (s.playSession.targetEnergyCost / PLAY_SESSION_SECONDS) * dt
+                  );
+                  const hunStep = Math.min(
+                    hungerRem,
+                    (s.playSession.targetHungerCost / PLAY_SESSION_SECONDS) * dt
+                  );
+                  const clnStep = Math.min(
+                    cleanRem,
+                    (s.playSession.targetCleanCost / PLAY_SESSION_SECONDS) * dt
+                  );
+
+                  s.happiness = clamp(s.happiness + hStep, 0, 100);
+                  s.playSession.appliedHappiness += hStep;
+                  s.energy = clamp(s.energy - eStep, 0, 100);
+                  s.playSession.appliedEnergyCost += eStep;
+                  s.hunger = clamp(s.hunger - hunStep, 0, 100);
+                  s.playSession.appliedHungerCost += hunStep;
+                  s.cleanliness = clamp(s.cleanliness - clnStep, 0, 100);
+                  s.playSession.appliedCleanCost += clnStep;
+                } else {
+                  s.energy = clamp(
+                    s.energy -
+                      simDt *
+                        rates.energyPerSec *
+                        phaseMult.energy *
+                        weatherMult.energy *
+                        pMod.energyDrain *
+                        hungryEnergyMult *
+                        stressMult,
                     0,
                     100
                   );
-                } else {
+                  // Bahagia: saat hujan di dalam rumah turun 0,9x, namun jika Bersih/Kenyang < 40 mood turun lebih cepat
+                  const badStatsDuringRain = s.hunger < 40 || s.cleanliness < 40;
+                  const rainHappyFactor = badStatsDuringRain
+                    ? weatherMult.indoorHappyBadStats
+                    : weatherMult.indoorHappyNormal;
+                  const baseHappyRate = rates.happinessPerSec * phaseMult.happiness * rainHappyFactor;
                   const happyPenalty =
-                    (s.hunger < 25 ? 0.4 : 0) +
-                    (s.cleanliness < 25 ? 0.3 : 0) +
-                    (s.energy < 20 ? 0.3 : 0);
+                    ((s.hunger < 20
+                      ? baseHappyRate * 0.75
+                      : s.hunger < 40
+                      ? baseHappyRate * 0.35
+                      : 0) +
+                      (s.cleanliness < 20 ? 0.045 : s.cleanliness < 40 ? 0.022 : 0) +
+                      (s.energy <= 20 ? 0.018 : 0)) *
+                    rainHappyFactor;
                   s.happiness = clamp(
-                    s.happiness - dt * (0.4 * stageDecayMult * sensitiveHappyMult + happyPenalty),
+                    s.happiness - simDt * (baseHappyRate + happyPenalty),
                     0,
                     100
                   );
                 }
 
-                // Batasan Aksi saat bermain: jika energi < 20 atau kenyang < 20, hentikan sesi main
-                if (s.toy.active && (s.energy < 20 || s.hunger < 20)) {
+                // Hentikan sesi bermain hanya jika sakit atau kondisi fisik habis total
+                if (s.toy.active && (s.isSick || s.energy <= 0.5 || s.hunger <= 2)) {
                   s.toy.active = false;
+                  s.playSession.active = false;
                   if (s.behavior === 'PLAYING') s.behavior = 'IDLE';
                   onToySessionEndRef.current?.();
                 }
 
-                // Kelelahan Ekstrem: jika energi <= 0, otomatis tertidur dan bahagia -5
-                if (s.energy <= 0) {
+                // Notifikasi transisi level ngantuk (<=50 Malam, <=45 Hujan, <=40 Cerah Pagi/Siang)
+                const nextDrowsyTier = getDrowsyStage(s.energy, dayPhase, s.weather);
+                if (nextDrowsyTier !== s.lastDrowsyNoticeTier) {
+                  if (nextDrowsyTier === 'drowsy_light' && s.lastDrowsyNoticeTier === 'fresh') {
+                    const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+                    spawnParticle('text', catPos.x, catPos.y - 34, {
+                      label:
+                        dayPhase === 'malam'
+                          ? 'Mulai ngantuk (≤50 Energi · Malam) · Waktunya tidur!'
+                          : s.weather === 'hujan'
+                          ? 'Mulai ngantuk (≤45 Energi · Hujan) · Syahdu untuk tidur!'
+                          : 'Mulai ngantuk (21–40 Energi) · Istirahatkan yuk!',
+                      color: '#FDE68A',
+                      size: 13,
+                      vy: -24,
+                      maxLife: 1.7,
+                    });
+                  } else if (
+                    nextDrowsyTier === 'drowsy_heavy' &&
+                    (s.lastDrowsyNoticeTier === 'fresh' || s.lastDrowsyNoticeTier === 'drowsy_light')
+                  ) {
+                    const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+                    spawnParticle('text', catPos.x, catPos.y - 34, {
+                      label: 'Sangat ngantuk (1–20 Energi)! Segera tidurkan',
+                      color: '#FCA5A5',
+                      size: 13.5,
+                      vy: -24,
+                      maxLife: 1.8,
+                    });
+                  }
+                  s.lastDrowsyNoticeTier = nextDrowsyTier;
+                }
+
+                // Fase Kelelahan Total (Energi == 0): otomatis masuk [AUTO-SLEEP] 4 menit
+                if (s.energy <= 0 && s.autoSleepRetryTimer <= 0) {
+                  const autoEnergyTarget =
+                    Math.round(
+                      AUTO_SLEEP_CONFIG.energyDelta *
+                        phaseMult.sleepEnergyMult *
+                        weatherMult.sleepEnergyMult *
+                        10
+                    ) / 10;
                   s.energy = 0;
                   s.toy.active = false;
+                  s.playSession.active = false;
                   s.idleZoomies = false;
+                  onToySessionEndRef.current?.();
+                  onBatheCompleteRef.current?.();
+                  s.sleepMode = 'auto_sleep';
+                  s.sleepDurationSec = AUTO_SLEEP_CONFIG.durationSec;
+                  s.sleepRemainingSec = AUTO_SLEEP_CONFIG.durationSec;
+                  s.sleepTargetEnergy = autoEnergyTarget;
+                  s.sleepTargetHappy = AUTO_SLEEP_CONFIG.happinessDelta;
+                  s.sleepTargetHunger = AUTO_SLEEP_CONFIG.hungerDelta;
+                  s.sleepTargetClean = AUTO_SLEEP_CONFIG.cleanlinessDelta;
+                  s.sleepAppliedEnergy = 0;
+                  s.sleepAppliedHappy = 0;
+                  s.sleepAppliedHunger = 0;
+                  s.sleepAppliedClean = 0;
                   s.behavior = 'SLEEPING';
                   s.facing = 1;
-                  s.happiness = clamp(s.happiness - 5, 0, 100);
                   soundEngine.playSleep();
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 34, {
-                    label: 'Kelelahan! Tertidur (-5 Bahagia)',
+                    label: `Kelelahan Total! Masuk [AUTO-SLEEP] 4 mnt (+${Math.round(autoEnergyTarget)} Energi)`,
                     color: '#93C5FD',
-                    size: 14,
+                    size: 13.5,
                     vy: -28,
-                    maxLife: 1.6,
+                    maxLife: 1.8,
                   });
-                  onToySessionEndRef.current?.();
                 }
               }
 
-              // Kirim pengingat notifikasi saat kenyang menyentuh 20%
-              if (s.hunger <= 20) {
+              // Kirim pengingat notifikasi saat kenyang menyentuh di bawah 40%
+              if (s.hunger < 40) {
                 sendLowHungerNotification();
               }
 
@@ -1630,7 +3361,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               if (
                 !s.isSick &&
                 !s.toy.active &&
-                s.hunger > 20 &&
+                s.hunger >= 40 &&
                 (s.behavior === 'IDLE' ||
                   s.behavior === 'ROLLING' ||
                   s.behavior === 'STRETCHING' ||
@@ -1643,21 +3374,28 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 }
               }
 
-              // Hungry sad meow reminder
-              if (s.hunger <= 20 && s.behavior !== 'EATING' && s.behavior !== 'SLEEPING') {
+              // Kenyang < 40: mulai memanggil/rewel minta makan
+              if (s.hunger < 40 && s.behavior !== 'EATING' && s.behavior !== 'SLEEPING') {
                 s.hungryMeowTimer -= dt;
                 if (s.hungryMeowTimer <= 0) {
-                  s.hungryMeowTimer = 8.5;
-                  soundEngine.playMeow(0.84);
+                  s.hungryMeowTimer = s.hunger < 20 ? 7.0 : 10.5;
+                  soundEngine.playMeow(s.hunger < 20 ? 0.82 : 0.92);
                 }
+              }
+
+              // Menyentuh 0 terlalu lama membuat kondisi memburuk
+              if (s.hunger <= 0) {
+                s.starveZeroTimer += simDt;
+              } else {
+                s.starveZeroTimer = 0;
               }
 
               // Dampak ke Kesehatan & Pemulihan Obat
               if (s.recoveryTimer > 0) {
-                s.recoveryTimer = Math.max(0, s.recoveryTimer - dt);
+                s.recoveryTimer = Math.max(0, s.recoveryTimer - simDt);
                 const healRate = s.hunger > 20 ? 5.2 : 3.2;
-                s.health = clamp(s.health + dt * healRate, 0, 100);
-                s.happiness = clamp(s.happiness + dt * 0.9, 0, 100);
+                s.health = clamp(s.health + simDt * healRate, 0, 100);
+                s.happiness = clamp(s.happiness + simDt * 0.9, 0, 100);
 
                 s.healParticleTimer -= dt;
                 if (s.healParticleTimer <= 0) {
@@ -1682,10 +3420,20 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   );
                 }
               } else {
-                const healthDrain =
-                  (s.hunger < 20 ? 0.35 : 0) + (s.cleanliness < 15 ? 0.2 : 0);
+                let healthDrain = s.cleanliness < 15 ? 0.16 : 0;
+                if (s.hunger <= 0 && s.starveZeroTimer > 30) {
+                  healthDrain += 0.24;
+                  s.happiness = clamp(s.happiness - simDt * 0.12, 0, 100);
+                  if (s.starveZeroTimer > 75 && !s.isSick) {
+                    s.health = Math.min(s.health, 44);
+                    s.isSick = true;
+                    s.sickReason = 'health';
+                  }
+                } else if (s.hunger < 20) {
+                  healthDrain += 0.05;
+                }
                 if (healthDrain > 0) {
-                  s.health = clamp(s.health - dt * healthDrain, 0, 100);
+                  s.health = clamp(s.health - simDt * healthDrain, 0, 100);
                 }
               }
 
@@ -1697,7 +3445,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.happiness > 75 &&
                 s.health < 100
               ) {
-                s.health = clamp(s.health + dt * 0.5, 0, 100);
+                s.health = clamp(s.health + simDt * 0.5, 0, 100);
               }
 
               // Pelacakan riwayat kebersihan rendah (< 25) & pemicu sakit
@@ -1706,7 +3454,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.wasUnder25Clean = true;
                   s.lowCleanlinessStrikes += 1;
                 }
-                s.dirtyStayTimer += dt;
+                s.dirtyStayTimer += simDt;
                 if (s.dirtyStayTimer >= 25) {
                   s.dirtyStayTimer = 0;
                   s.lowCleanlinessStrikes += 1;
@@ -1718,7 +3466,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.wasUnder25Clean = false;
                 }
                 if (s.cleanliness >= 90 && !s.isSick) {
-                  s.cleanHealthyTimer += dt;
+                  s.cleanHealthyTimer += simDt;
                   if (s.cleanHealthyTimer >= 45 && s.lowCleanlinessStrikes > 0) {
                     s.cleanHealthyTimer = 0;
                     s.lowCleanlinessStrikes -= 1;
@@ -1785,6 +3533,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
 
               if (s.health <= 0 && !gameOverFired) {
+                s.deathReason = 'sickness';
                 gameOverFired = true;
                 clearLowHungerNotificationSchedule();
                 onGameOver(buildSnapshot());
@@ -1799,6 +3548,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   const ox = (Math.random() - 0.5) * 68 * pScale;
                   const oy = (Math.random() - 0.5) * 28 * pScale;
 
+                  const ambientDrowsy = getDrowsyStage(
+                    s.energy,
+                    getDayPhaseFromHour(s.gameHour),
+                    s.weather
+                  );
+
                   if (s.isSick) {
                     s.moodParticleTimer = 1.15;
                     const useTear = Math.random() < 0.45;
@@ -1812,7 +3567,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                       swayFreq: 2.4,
                       phase: Math.random() * Math.PI * 2,
                     });
-                  } else if (s.cleanliness < 30) {
+                  } else if (s.cleanliness < 40) {
                     s.moodParticleTimer = 0.85;
                     spawnParticle('dust_puff', catCenter.x + ox, catCenter.y + 8 * pScale + oy * 0.6, {
                       color: 'rgba(148, 128, 98, 0.58)',
@@ -1824,25 +3579,26 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                       swayFreq: 2.5,
                       phase: Math.random() * Math.PI * 2,
                     });
-                  } else if (s.energy < 25) {
-                    s.moodParticleTimer = 1.05;
-                    const useZ = Math.random() < 0.35;
+                  } else if (ambientDrowsy === 'drowsy_light' || ambientDrowsy === 'drowsy_heavy') {
+                    const heavy = ambientDrowsy === 'drowsy_heavy';
+                    s.moodParticleTimer = heavy ? 1.0 : 1.75;
+                    const useZ = Math.random() < (heavy ? 0.38 : 0.22);
                     spawnParticle(
                       useZ ? 'zzz' : 'sleep_cloud',
                       catCenter.x + ox * 0.8,
                       catCenter.y - 16 * pScale + oy * 0.4,
                       {
                         color: 'rgba(224, 242, 254, 0.88)',
-                        size: (useZ ? 11 : 9.5) * pScale,
+                        size: (useZ ? (heavy ? 11 : 9) : heavy ? 9.5 : 7.5) * pScale,
                         vx: 6 * pScale,
                         vy: -16 * pScale,
-                        maxLife: 1.5,
+                        maxLife: heavy ? 1.5 : 1.2,
                         swayAmp: 5 * pScale,
                         swayFreq: 2.1,
                         phase: Math.random() * Math.PI * 2,
                       }
                     );
-                  } else if (s.happiness <= 30) {
+                  } else if (s.happiness < 40) {
                     s.moodParticleTimer = 1.1;
                     spawnParticle('tear_drop', catCenter.x + ox * 0.8, catCenter.y - 10 * pScale, {
                       color: '#7DD3FC',
@@ -1854,7 +3610,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                       swayFreq: 3.0,
                       phase: Math.random() * Math.PI * 2,
                     });
-                  } else if (s.hunger <= 30 && s.behavior !== 'EATING') {
+                  } else if (s.hunger < 40 && s.behavior !== 'EATING') {
                     s.moodParticleTimer = 1.25;
                     spawnParticle('dust_puff', catCenter.x + ox * 0.75, catCenter.y + oy * 0.5, {
                       color: 'rgba(251, 146, 60, 0.46)',
@@ -1985,6 +3741,39 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
               if (s.toy.lifeTimer <= 0) {
                 s.toy.active = false;
+                if (s.playSession.active) {
+                  const remH = Math.max(
+                    0,
+                    s.playSession.targetHappiness - s.playSession.appliedHappiness
+                  );
+                  const remE = Math.max(
+                    0,
+                    s.playSession.targetEnergyCost - s.playSession.appliedEnergyCost
+                  );
+                  const remHun = Math.max(
+                    0,
+                    s.playSession.targetHungerCost - s.playSession.appliedHungerCost
+                  );
+                  const remCln = Math.max(
+                    0,
+                    s.playSession.targetCleanCost - s.playSession.appliedCleanCost
+                  );
+                  s.happiness = clamp(s.happiness + remH, 0, 100);
+                  s.energy = clamp(s.energy - remE, 0, 100);
+                  s.hunger = clamp(s.hunger - remHun, 0, 100);
+                  s.cleanliness = clamp(s.cleanliness - remCln, 0, 100);
+                  const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+                  spawnParticle('text', catPos.x, catPos.y - 34, {
+                    label: `Main Selesai: +${s.playSession.targetHappiness} Bahagia · -${Math.round(
+                      s.playSession.targetEnergyCost
+                    )} Energi · -${s.playSession.targetHungerCost} Kenyang`,
+                    color: '#FBCFE8',
+                    size: 13,
+                    vy: -28,
+                    maxLife: 1.55,
+                  });
+                  s.playSession.active = false;
+                }
                 if (s.behavior === 'PLAYING') s.behavior = 'IDLE';
                 onToySessionEndRef.current?.();
               }
@@ -2025,43 +3814,56 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             } else if (s.behavior === 'EATING') {
               if (s.bowlAmount <= 0.01) {
                 s.bowlAmount = 0;
-                if (s.mealHungerRemaining > 0) {
-                  s.hunger = clamp(s.hunger + s.mealHungerRemaining, 0, 100);
-                  s.mealHungerRemaining = 0;
-                }
+                flushPendingBowlMeal();
                 s.behavior = 'GROOMING';
                 s.groomTimer = 2.0;
-                if (s.pendingTreatBonus.happiness > 0 || s.pendingTreatBonus.energy > 0) {
-                  s.happiness = clamp(s.happiness + s.pendingTreatBonus.happiness, 0, 100);
-                  s.energy = clamp(s.energy + s.pendingTreatBonus.energy, 0, 100);
-                  s.pendingTreatBonus = { happiness: 0, energy: 0 };
+                if (s.hunger >= 40) {
+                  const eatRates = getStageDecayRatesPerSec(
+                    s.lifeStage,
+                    s.stageElapsedSec,
+                    s.adultBranch,
+                    hungerSpeedRef.current
+                  );
+                  resetLowHungerNotificationAfterFeed(s.hunger, eatRates.hungerPerSec);
                 }
-                if (s.hunger > 20) {
-                  resetLowHungerNotificationAfterFeed(s.hunger, OFFLINE_HUNGER_DECAY_PER_SEC);
+                const isFreeMeal = s.bowlTreatType === 'snack' || s.bowlTreatType === 'kibble';
+                const now = Date.now();
+                if (!isFreeMeal || now - s.lastFreeFeedTime >= FREE_COIN_REWARD_COOLDOWN_MS) {
+                  if (isFreeMeal) s.lastFreeFeedTime = now;
+                  addXpAndCoins(8, 2);
+                } else {
+                  addXpAndCoins(4, 0);
                 }
-                addXpAndCoins(8, 2);
               } else {
                 s.eatTickTimer -= dt;
-                const stepBowl = Math.min(s.bowlAmount, dt * 0.24);
+                const prevBowl = s.bowlAmount;
+                const stepBowl = Math.min(s.bowlAmount, dt * 0.34);
                 s.bowlAmount = Math.max(0, s.bowlAmount - stepBowl);
-                if (s.bowlTreatType === 'kibble') {
-                  const gain = Math.min(s.mealHungerRemaining, stepBowl * FREE_FEED_HUNGER_POINTS);
-                  s.mealHungerRemaining = Math.max(0, s.mealHungerRemaining - gain);
-                  s.hunger = clamp(s.hunger + gain, 0, 100);
-                } else {
-                  const gain = Math.min(s.mealHungerRemaining, dt * 11);
-                  s.mealHungerRemaining = Math.max(0, s.mealHungerRemaining - gain);
-                  s.hunger = clamp(s.hunger + gain, 0, 100);
-                }
+                const frac = prevBowl > 0 ? stepBowl / prevBowl : 1;
+
+                const hGain = s.mealHungerRemaining * frac;
+                s.mealHungerRemaining = Math.max(0, s.mealHungerRemaining - hGain);
+                s.hunger = clamp(s.hunger + hGain, 0, 100);
+
+                const hapGain = s.mealHappyRemaining * frac;
+                s.mealHappyRemaining = Math.max(0, s.mealHappyRemaining - hapGain);
+                s.happiness = clamp(s.happiness + hapGain, 0, 100);
+
+                const enGain = s.mealEnergyRemaining * frac;
+                s.mealEnergyRemaining = Math.max(0, s.mealEnergyRemaining - enGain);
+                s.energy = clamp(s.energy + enGain, 0, 100);
+
                 if (s.eatTickTimer <= 0) {
                   s.eatTickTimer = 0.42;
                   const bPos = roomToScreen(BOWL_POS.nx, BOWL_POS.ny - 0.02, rt);
                   spawnParticle('crumb', bPos.x + (Math.random() - 0.5) * 14, bPos.y, {
                     color:
-                      s.bowlTreatType === 'salmon'
+                      s.bowlTreatType === 'salmon' || s.bowlTreatType === 'special_food'
                         ? '#F2795A'
                         : s.bowlTreatType === 'milk'
                         ? '#FFFFFF'
+                        : s.bowlTreatType === 'snack'
+                        ? '#F4C27F'
                         : '#9C6234',
                     size: 3.2,
                     vx: (Math.random() - 0.5) * 45,
@@ -2079,8 +3881,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               if (
                 gState === 'PLAYING' &&
                 s.toy.active &&
-                s.energy >= 20 &&
-                s.hunger >= 20 &&
+                s.energy > 2 &&
+                s.hunger > 2 &&
                 !s.isSick
               ) {
                 s.idleZoomies = false;
@@ -2109,8 +3911,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 const catchDist = isChasingBall && s.activeToy === 'toy_mouse' ? 0.056 : 0.032;
                 s.isSprinting = isRunning && (dist > 0.05 || s.idleZoomies);
 
-                // Sakit -> lemas dan berjalan jauh lebih lambat
-                const sickSlowFactor = s.isSick ? 0.42 : s.hunger <= 15 ? 0.72 : 1;
+                // Sakit atau energi <= 20 -> tampak lemas & berjalan lebih lambat
+                const sickSlowFactor = s.isSick
+                  ? 0.42
+                  : s.energy <= 20
+                  ? 0.52
+                  : s.hunger <= 15
+                  ? 0.72
+                  : 1;
                 const speed =
                   (isRunning ? (s.isSprinting ? 0.3 : 0.24) : 0.125) * sickSlowFactor;
 
@@ -2168,11 +3976,24 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                         s.toy.z = 0.03;
                       }
 
-                      s.happiness = clamp(
-                        s.happiness + toyOpt.catchHappiness * PERSONALITY_MODS[s.personality].ballHappy,
-                        0,
-                        100
-                      );
+                      if (s.playSession.active) {
+                        const happyRem = Math.max(
+                          0,
+                          s.playSession.targetHappiness - s.playSession.appliedHappiness
+                        );
+                        const burstH = Math.min(
+                          happyRem,
+                          Math.max(2, Math.round(s.playSession.targetHappiness * 0.2))
+                        );
+                        s.happiness = clamp(s.happiness + burstH, 0, 100);
+                        s.playSession.appliedHappiness += burstH;
+                      } else {
+                        s.happiness = clamp(
+                          s.happiness + toyOpt.catchHappiness * PERSONALITY_MODS[s.personality].ballHappy,
+                          0,
+                          100
+                        );
+                      }
                       s.totalCatches += 1;
 
                       const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
@@ -2352,9 +4173,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           isSprinting: s.isSprinting,
           cleanliness: s.cleanliness,
           energy: s.energy,
+          drowsyStage: getDrowsyStage(s.energy, getDayPhaseFromHour(s.gameHour), s.weather),
           hunger: s.hunger,
           happiness: s.happiness,
-          isHungry: s.hunger <= 30,
+          isHungry: s.hunger < 40,
           isSick: s.isSick,
           isRecovering: s.recoveryTimer > 0,
           lifeStage: s.lifeStage,
@@ -2483,7 +4305,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       s.lastPointerY = py;
 
       const mode = toolModeRef.current;
-      const pMod = PERSONALITY_MODS[s.personality];
 
       if (mode === 'TOY' && isClick) {
         const roomPt = screenToRoom(px, py, rt);
@@ -2493,6 +4314,22 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
       if (distToCat <= hitRadius) {
         if (mode === 'BRUSH') {
+          if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+            if (isClick || s.brushHintCooldown <= 0) {
+              s.brushHintCooldown = 1.2;
+              soundEngine.playBounce();
+              spawnParticle('text', catScr.x, catScr.y - 34, {
+                label: 'Mandi & sikat dikunci saat kucing tidur!',
+                color: '#FCA5A5',
+                size: 13.5,
+                vy: -26,
+                maxLife: 1.35,
+              });
+              onBatheCompleteRef.current?.();
+            }
+            return;
+          }
+
           if (isClick) {
             s.brushScrubAccum = 0;
             soundEngine.unlock();
@@ -2562,10 +4399,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
               s.cleanliness = clamp(s.cleanliness + BRUSH_POINTS_PER_STROKE, 0, 100);
               s.happiness = clamp(s.happiness - 0.5, 0, 100);
-              if (s.behavior === 'SLEEPING') {
-                s.z = 0;
-                s.vz = 0;
-              }
               s.behavior = 'GROOMING';
               s.groomTimer = 1.0;
               s.scaleX = 1.05;
@@ -2607,31 +4440,55 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             }
           }
         } else {
-          if (isClick || moveDist > 6) {
-            soundEngine.unlock();
-            if (isClick) {
-              soundEngine.playMeow(s.isSick ? 0.82 : 1.06);
-              s.scaleX = 1.08;
-              s.scaleY = 0.93;
-            } else {
-              soundEngine.playPurr();
+          if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+            if (isClick && s.petActionCooldown <= 0) {
+              s.petActionCooldown = 1.2;
+              soundEngine.playBounce();
+              spawnParticle('text', catScr.x, catScr.y - 34, {
+                label: 'Zzz... Sedang tidur',
+                color: '#BFDBFE',
+                size: 13.5,
+                vy: -24,
+                maxLife: 1.2,
+              });
             }
+            return;
+          }
+
+          if (isClick) {
+            if (s.petActionCooldown <= 0) {
+              s.petActionCooldown = 1.6;
+              petCatInternal('short');
+            } else {
+              soundEngine.unlock();
+              soundEngine.playPurr();
+              s.behavior = 'PURRING';
+              s.purrDecayTimer = 1.0;
+              spawnParticle('heart', px + (Math.random() - 0.5) * 24, py - 14, {
+                color: '#EC6A76',
+                size: 9 + Math.random() * 4,
+                vy: -42 - Math.random() * 18,
+                maxLife: 0.95,
+              });
+            }
+          } else if (moveDist > 2) {
+            soundEngine.unlock();
+            s.petRubAccum += Math.min(moveDist, 28);
             s.behavior = 'PURRING';
             s.purrDecayTimer = 1.1;
-            s.happiness = clamp(s.happiness + (isClick ? 4 : 1.4) * pMod.petHappy, 0, 100);
-            s.totalPets += isClick ? 1 : 0;
-
-            spawnParticle('heart', px + (Math.random() - 0.5) * 24, py - 14, {
-              color: '#EC6A76',
-              size: 9 + Math.random() * 4,
-              vy: -42 - Math.random() * 18,
-              maxLife: 0.95,
-            });
-
-            if (s.petCoinCooldown <= 0) {
-              s.petCoinCooldown = 1.5;
-              s.totalPets += 1;
-              addXpAndCoins(4, 1, catScr.x, catScr.y - 32);
+            if (Math.random() < 0.28) {
+              soundEngine.playPurr();
+              spawnParticle('heart', px + (Math.random() - 0.5) * 24, py - 14, {
+                color: '#EC6A76',
+                size: 8.5 + Math.random() * 3,
+                vy: -38 - Math.random() * 16,
+                maxLife: 0.85,
+              });
+            }
+            if (s.petRubAccum >= 140 && s.petActionCooldown <= 0) {
+              s.petRubAccum = 0;
+              s.petActionCooldown = 1.8;
+              petCatInternal('full');
             }
           }
         }
@@ -2678,6 +4535,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           simRef.current.pointerInside = false;
           simRef.current.pointerDown = false;
           simRef.current.brushScrubAccum = 0;
+          simRef.current.petRubAccum = 0;
           simRef.current.bedDragCandidate = false;
           simRef.current.isDraggingBed = false;
         }}
@@ -2783,6 +4641,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           const wasDragging = s.isDraggingBed;
           s.pointerDown = false;
           s.brushScrubAccum = 0;
+          s.petRubAccum = 0;
           s.bedDragCandidate = false;
           s.isDraggingBed = false;
 

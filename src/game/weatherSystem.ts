@@ -45,6 +45,9 @@ export interface WeatherFxState {
   weather: WeatherType;
   prevWeather: WeatherType;
   weatherFade: number; // 0..1 transition from prevWeather -> weather
+  gameHour: number;
+  duskWeight: number;
+  nightCycleWeight: number;
   time: number;
   lightningFlash: number;
   rainDrops: RainDropParticle[];
@@ -252,6 +255,9 @@ export function createWeatherFxState(): WeatherFxState {
     weather: 'cerah',
     prevWeather: 'cerah',
     weatherFade: 1,
+    gameHour: 7,
+    duskWeight: 0,
+    nightCycleWeight: 0,
     time: 0,
     lightningFlash: 0,
     rainDrops,
@@ -272,17 +278,39 @@ function getWeatherWeight(fx: WeatherFxState, target: WeatherType): number {
 export function stepWeatherFx(
   fx: WeatherFxState,
   dt: number,
-  activeBackground: RoomBackgroundId
+  activeBackground: RoomBackgroundId,
+  gameHour = fx.gameHour
 ): void {
   fx.time += dt;
+  fx.gameHour = ((gameHour % 24) + 24) % 24;
   if (fx.weatherFade < 1) {
     fx.weatherFade = Math.min(1, fx.weatherFade + dt / 2.4);
   }
   fx.lightningFlash = Math.max(0, fx.lightningFlash - dt * 3.4);
 
+  const h = fx.gameHour;
+  let targetNight = 0;
+  if (h >= 18.25 || h < 5.5) {
+    targetNight = 1;
+  } else if (h >= 17.5 && h < 18.25) {
+    targetNight = (h - 17.5) / 0.75;
+  } else if (h >= 5.5 && h < 6.25) {
+    targetNight = 1 - (h - 5.5) / 0.75;
+  }
+
+  let targetDusk = 0;
+  if (h >= 16.5 && h < 17.5) {
+    targetDusk = (h - 16.5) / 1.0;
+  } else if (h >= 17.5 && h < 18.25) {
+    targetDusk = 1 - (h - 17.5) / 0.75;
+  }
+
+  fx.nightCycleWeight += (targetNight - fx.nightCycleWeight) * Math.min(1, dt * 3.5);
+  fx.duskWeight += (targetDusk - fx.duskWeight) * Math.min(1, dt * 3.5);
+
   const profile = HOUSE_PROFILES[activeBackground];
   const rainWeight = getWeatherWeight(fx, 'hujan');
-  const sunWeight = getWeatherWeight(fx, 'cerah');
+  const sunWeight = getWeatherWeight(fx, 'cerah') * (1 - fx.nightCycleWeight * 0.9);
 
   if (rainWeight > 0.02) {
     for (let i = 0; i < fx.rainDrops.length; i++) {
@@ -361,11 +389,16 @@ export function drawRoomWeatherBackdrop(
 ): void {
   const profile = HOUSE_PROFILES[activeBackground];
   const rainWeight = getWeatherWeight(fx, 'hujan');
-  const nightWeight = getWeatherWeight(fx, 'malam');
-  const sunWeight = getWeatherWeight(fx, 'cerah');
+  const nightWeight = Math.max(getWeatherWeight(fx, 'malam'), fx.nightCycleWeight);
+  const duskWeight = fx.duskWeight * (1 - rainWeight * 0.55);
+  const sunWeight = getWeatherWeight(fx, 'cerah') * (1 - nightWeight * 0.92);
   const s = Math.max(0.6, rt.scale);
 
-  // 1. Interior ambient color grading by weather (plus sleeping nap dim)
+  // 1. Interior ambient color grading by time-of-day & weather (plus sleeping nap dim)
+  if (duskWeight > 0.01) {
+    ctx.fillStyle = `rgba(217, 119, 54, ${(0.16 * duskWeight).toFixed(3)})`;
+    ctx.fillRect(0, 0, viewW, viewH);
+  }
   if (rainWeight > 0.01) {
     ctx.fillStyle = `rgba(38, 60, 86, ${(0.22 * rainWeight).toFixed(3)})`;
     ctx.fillRect(0, 0, viewW, viewH);
@@ -590,8 +623,9 @@ export function drawScreenWeatherOverlay(
   fx: WeatherFxState
 ): void {
   const rainWeight = getWeatherWeight(fx, 'hujan');
-  const nightWeight = getWeatherWeight(fx, 'malam');
-  const sunWeight = getWeatherWeight(fx, 'cerah');
+  const nightWeight = Math.max(getWeatherWeight(fx, 'malam'), fx.nightCycleWeight);
+  const duskWeight = fx.duskWeight * (1 - rainWeight * 0.55);
+  const sunWeight = getWeatherWeight(fx, 'cerah') * (1 - nightWeight * 0.92);
   const profile = HOUSE_PROFILES[activeBackground];
 
   // Subtle screen-level atmospheric overlay while playing
@@ -647,6 +681,25 @@ export function drawScreenWeatherOverlay(
     vig.addColorStop(0, 'rgba(10, 18, 40, 0)');
     vig.addColorStop(1, `rgba(8, 14, 34, ${(0.34 * nightWeight).toFixed(3)})`);
     ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, viewW, viewH);
+    ctx.restore();
+  }
+
+  if (duskWeight > 0.01) {
+    ctx.save();
+    const sunPt = roomToScreen(profile.sunOrigin.nx, profile.sunOrigin.ny, rt);
+    const duskGlow = ctx.createRadialGradient(
+      sunPt.x,
+      sunPt.y,
+      10,
+      sunPt.x,
+      sunPt.y,
+      Math.max(viewW, viewH) * 0.68
+    );
+    duskGlow.addColorStop(0, `rgba(251, 146, 60, ${(0.22 * duskWeight).toFixed(3)})`);
+    duskGlow.addColorStop(0.5, `rgba(249, 115, 22, ${(0.09 * duskWeight).toFixed(3)})`);
+    duskGlow.addColorStop(1, 'rgba(249, 115, 22, 0)');
+    ctx.fillStyle = duskGlow;
     ctx.fillRect(0, 0, viewW, viewH);
     ctx.restore();
   }

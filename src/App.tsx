@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { soundEngine } from './audio/soundEngine';
+import { DevTestingPanel } from './components/DevTestingPanel';
 import { GameHud } from './components/GameHud';
 import { LifeStageModal } from './components/LifeStageModal';
 import { MiniGameModal } from './components/MiniGameModal';
@@ -13,19 +14,26 @@ import { ShopDrawer } from './components/ShopDrawer';
 import { TitleScreen } from './components/TitleScreen';
 import { CatStageCanvas, CatStageHandle } from './game/CatStageCanvas';
 import {
+  BathItemId,
   CatAccessoryId,
   CatBedId,
   CatBreed,
   CatHudSnapshot,
   CatToyId,
+  DevQuickAction,
+  DevStatePatch,
+  DevTimeScale,
+  FoodItemId,
   GameSettings,
   GameState,
+  INITIAL_COOLDOWNS,
+  INITIAL_INVENTORY,
   LIFE_STAGES,
+  ManualSleepMode,
   RoomBackgroundId,
   SAVE_STORAGE_KEY,
   SaveData,
   SETTINGS_STORAGE_KEY,
-  ShopItem,
   ToolMode,
 } from './types/game';
 import {
@@ -50,8 +58,12 @@ const INITIAL_HUD: CatHudSnapshot = {
   xpToNext: 40,
   level: 1,
   coins: 35,
-  day: 1,
-  timeOfDay: 0.14,
+  day: 0,
+  gameHours: 0,
+  gameHour: 7,
+  dayPhase: 'pagi',
+  isDusk: false,
+  timeOfDay: 7 / 24,
   weather: 'cerah',
   lifeStage: 'baby',
   stageElapsedSec: 0,
@@ -59,6 +71,8 @@ const INITIAL_HUD: CatHudSnapshot = {
   careMistakes: 0,
   adultBranch: 'prima',
   miniGameUnlocked: false,
+  deathReason: null,
+  personality: 'playful',
   bowlAmount: 0,
   freeFeedCooldownSec: 0,
   totalCatches: 0,
@@ -73,6 +87,12 @@ const INITIAL_HUD: CatHudSnapshot = {
   equippedGlasses: 'none',
   equippedScarf: 'default',
   unlockedAccessories: [],
+  inventory: { ...INITIAL_INVENTORY },
+  sleepMode: 'none',
+  sleepRemainingSec: 0,
+  sleepDurationSec: 0,
+  drowsyStage: 'fresh',
+  cooldownsSec: { ...INITIAL_COOLDOWNS },
   moodLabel: 'Tenang & Nyaman',
   warningText: null,
 };
@@ -94,7 +114,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   sfxMuted: false,
   musicMuted: false,
   volume: 100,
-  hungerSpeed: 'santai',
+  hungerSpeed: 'normal',
 };
 
 function readSettings(): GameSettings {
@@ -131,6 +151,8 @@ export default function App() {
   const [shopOpen, setShopOpen] = useState(false);
   const [lifeStageOpen, setLifeStageOpen] = useState(false);
   const [miniGameOpen, setMiniGameOpen] = useState(false);
+  const [devPanelOpen, setDevPanelOpen] = useState(false);
+  const [devTimeScale, setDevTimeScale] = useState<DevTimeScale>(1);
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const saveTimerRef = useRef<{ settle: number | null; clear: number | null }>({
@@ -224,35 +246,91 @@ export default function App() {
     soundEngine.playMeow(1.0);
   }, [existingSave]);
 
-  const handleFeed = useCallback(() => {
-    setToolMode('PET');
-    if (stageRef.current?.feedRegular()) {
-      persistProgress();
-    }
-  }, [persistProgress]);
-
-  const handleToggleSleep = useCallback(() => {
-    setToolMode('PET');
-    stageRef.current?.toggleSleep();
-  }, []);
-
-  const handleTossToy = useCallback(() => {
-    stageRef.current?.tossToy();
-  }, []);
-
-  const handleGiveMedicine = useCallback(() => {
-    setToolMode('PET');
-    stageRef.current?.giveMedicine();
-  }, []);
-
-  const handleBuyItem = useCallback(
-    (item: ShopItem) => {
-      if (stageRef.current?.applyShopItem(item)) {
+  const handleFeedItem = useCallback(
+    (foodId: FoodItemId) => {
+      setToolMode('PET');
+      if (stageRef.current?.feedItem(foodId)) {
         persistProgress();
       }
     },
     [persistProgress]
   );
+
+  const handleBuyFoodItem = useCallback(
+    (foodId: Exclude<FoodItemId, 'snack'>, useImmediately = false) => {
+      setToolMode('PET');
+      if (stageRef.current?.buyFoodItem(foodId, useImmediately)) {
+        persistProgress();
+      }
+    },
+    [persistProgress]
+  );
+
+  const handleUseBathItem = useCallback(
+    (bathId: BathItemId) => {
+      setToolMode('PET');
+      if (stageRef.current?.useBathItem(bathId)) {
+        persistProgress();
+      }
+    },
+    [persistProgress]
+  );
+
+  const handleBuyBathItem = useCallback(
+    (bathId: Exclude<BathItemId, 'basic_soap'>, useImmediately = false) => {
+      setToolMode('PET');
+      if (stageRef.current?.buyBathItem(bathId, useImmediately)) {
+        persistProgress();
+      }
+    },
+    [persistProgress]
+  );
+
+  const handleStartSleep = useCallback(
+    (mode: ManualSleepMode) => {
+      setToolMode('PET');
+      if (stageRef.current?.startSleep(mode)) {
+        persistProgress();
+      }
+    },
+    [persistProgress]
+  );
+
+  const handleWakeUp = useCallback(() => {
+    setToolMode('PET');
+    stageRef.current?.wakeUp();
+    persistProgress();
+  }, [persistProgress]);
+
+  const handleToggleSleep = useCallback(() => {
+    setToolMode('PET');
+    stageRef.current?.toggleSleep();
+    persistProgress();
+  }, [persistProgress]);
+
+  const handleOpenMiniGame = useCallback(() => {
+    if (stageRef.current?.canStartMiniGame()) {
+      setMiniGameOpen(true);
+    }
+  }, []);
+
+  const handleStartInteractivePlay = useCallback(() => {
+    stageRef.current?.startInteractivePlay();
+  }, []);
+
+  const handlePetCat = useCallback(
+    (kind: 'short' | 'full') => {
+      setToolMode('PET');
+      stageRef.current?.petCat(kind);
+      persistProgress();
+    },
+    [persistProgress]
+  );
+
+  const handleGiveMedicine = useCallback(() => {
+    setToolMode('PET');
+    stageRef.current?.giveMedicine();
+  }, []);
 
   const handleSelectBackground = useCallback(
     (bgId: RoomBackgroundId) => {
@@ -303,12 +381,28 @@ export default function App() {
     [persistProgress]
   );
 
+  const handleDevPatchState = useCallback((patch: DevStatePatch) => {
+    stageRef.current?.applyDevPatch(patch);
+  }, []);
+
+  const handleDevQuickAction = useCallback(
+    (action: DevQuickAction) => {
+      stageRef.current?.devAction(action);
+      if (action === 'unlock_all_shop' || action === 'fill_inventory' || action === 'reset_cooldowns') {
+        persistProgress();
+      }
+    },
+    [persistProgress]
+  );
+
   const handleGameOver = useCallback((finalSnapshot: CatHudSnapshot) => {
     clearLowHungerNotificationSchedule();
     setHud(finalSnapshot);
     setShopOpen(false);
     setLifeStageOpen(false);
     setMiniGameOpen(false);
+    setDevPanelOpen(false);
+    setDevTimeScale(1);
     setToolMode('PET');
     setGameState('GAME_OVER');
     try {
@@ -325,6 +419,8 @@ export default function App() {
     setShopOpen(false);
     setLifeStageOpen(false);
     setMiniGameOpen(false);
+    setDevPanelOpen(false);
+    setDevTimeScale(1);
     setGameState('PLAYING');
     soundEngine.playMeow(1.05);
   }, [hud.name, hud.breed]);
@@ -336,6 +432,8 @@ export default function App() {
     setShopOpen(false);
     setLifeStageOpen(false);
     setMiniGameOpen(false);
+    setDevPanelOpen(false);
+    setDevTimeScale(1);
     setToolMode('PET');
     setGameState('TITLE_MENU');
   }, [gameState, persistProgress]);
@@ -401,6 +499,8 @@ export default function App() {
           setLifeStageOpen(false);
         } else if (shopOpen) {
           setShopOpen(false);
+        } else if (devPanelOpen) {
+          setDevPanelOpen(false);
         } else if (gameState === 'PLAYING') {
           persistProgress();
           setGameState('PAUSED');
@@ -412,15 +512,26 @@ export default function App() {
 
       if (gameState !== 'PLAYING') return;
 
+      const isSleepingNow = hud.behavior === 'SLEEPING' || hud.sleepMode !== 'none';
+      const canInteractiveKey =
+        !isSleepingNow &&
+        !hud.isSick &&
+        hud.energy > 20 &&
+        hud.hunger > 2 &&
+        hud.happiness < 100 &&
+        hud.cooldownsSec.interactivePlay === 0;
+
       if (e.key === '1') {
-        handleFeed();
+        handleFeedItem('snack');
       } else if (e.key === '2') {
-        setToolMode((prev) => (prev === 'BRUSH' ? 'PET' : 'BRUSH'));
+        if (!isSleepingNow && hud.cleanliness < 100) {
+          setToolMode((prev) => (prev === 'BRUSH' ? 'PET' : 'BRUSH'));
+        }
       } else if (e.key === '3') {
-        if (hud.energy >= 20 && hud.hunger >= 20) {
+        if (canInteractiveKey) {
           setToolMode('TOY');
         }
-        handleTossToy();
+        handleStartInteractivePlay();
       } else if (e.key === '4') {
         handleToggleSleep();
       } else if (e.key === '5') {
@@ -429,10 +540,10 @@ export default function App() {
         setShopOpen((prev) => !prev);
       } else if (e.key === ' ') {
         e.preventDefault();
-        if (hud.energy >= 20 && hud.hunger >= 20) {
+        if (canInteractiveKey) {
           setToolMode('TOY');
         }
-        handleTossToy();
+        handleStartInteractivePlay();
       }
     };
 
@@ -443,11 +554,18 @@ export default function App() {
     shopOpen,
     lifeStageOpen,
     miniGameOpen,
+    devPanelOpen,
+    hud.behavior,
+    hud.sleepMode,
+    hud.cleanliness,
+    hud.isSick,
     hud.energy,
     hud.hunger,
+    hud.happiness,
+    hud.cooldownsSec.interactivePlay,
     persistProgress,
-    handleFeed,
-    handleTossToy,
+    handleFeedItem,
+    handleStartInteractivePlay,
     handleToggleSleep,
     handleGiveMedicine,
   ]);
@@ -460,6 +578,7 @@ export default function App() {
         toolMode={toolMode}
         previewBreed={selectedBreed}
         hungerSpeed={settings.hungerSpeed}
+        devTimeScale={devTimeScale}
         onHudUpdate={setHud}
         onGameOver={handleGameOver}
         onToySessionEnd={() => setToolMode((prev) => (prev === 'TOY' ? 'PET' : prev))}
@@ -487,13 +606,18 @@ export default function App() {
             toolMode={toolMode}
             shopOpen={shopOpen}
             onSelectTool={setToolMode}
-            onFeed={handleFeed}
-            onToggleSleep={handleToggleSleep}
-            onTossToy={handleTossToy}
+            onFeedItem={handleFeedItem}
+            onBuyFoodItem={handleBuyFoodItem}
+            onUseBathItem={handleUseBathItem}
+            onBuyBathItem={handleBuyBathItem}
+            onStartSleep={handleStartSleep}
+            onWakeUp={handleWakeUp}
+            onStartInteractivePlay={handleStartInteractivePlay}
+            onPetCat={handlePetCat}
             onGiveMedicine={handleGiveMedicine}
             onToggleShop={() => setShopOpen((prev) => !prev)}
             onOpenLifeStage={() => setLifeStageOpen(true)}
-            onOpenMiniGame={() => setMiniGameOpen(true)}
+            onOpenMiniGame={handleOpenMiniGame}
             onPause={() => {
               persistProgress();
               setGameState('PAUSED');
@@ -503,7 +627,10 @@ export default function App() {
             open={shopOpen}
             hud={hud}
             onClose={() => setShopOpen(false)}
-            onBuyItem={handleBuyItem}
+            onFeedItem={handleFeedItem}
+            onBuyFoodItem={handleBuyFoodItem}
+            onUseBathItem={handleUseBathItem}
+            onBuyBathItem={handleBuyBathItem}
             onSelectBackground={handleSelectBackground}
             onSelectBed={handleSelectBed}
             onSelectToy={handleSelectToy}
@@ -518,8 +645,20 @@ export default function App() {
           <MiniGameModal
             open={miniGameOpen}
             catName={hud.name}
+            isRaining={hud.weather === 'hujan'}
             onClose={() => setMiniGameOpen(false)}
             onComplete={handleMiniGameComplete}
+          />
+          <DevTestingPanel
+            open={devPanelOpen}
+            onToggleOpen={() => setDevPanelOpen((prev) => !prev)}
+            hud={hud}
+            devTimeScale={devTimeScale}
+            onChangeTimeScale={setDevTimeScale}
+            onPatchState={handleDevPatchState}
+            onQuickAction={handleDevQuickAction}
+            onStartSleep={handleStartSleep}
+            onSaveNow={persistProgress}
           />
         </>
       )}

@@ -9,6 +9,7 @@ import {
   CatHatId,
   CatScarfId,
   CatToyId,
+  DrowsyStage,
   LifeStage,
   RoomBackgroundId,
   ToolMode,
@@ -67,6 +68,7 @@ export interface CatRenderState {
   isHungry: boolean;
   isSick: boolean;
   isRecovering: boolean;
+  drowsyStage?: DrowsyStage;
   lifeStage?: LifeStage;
   adultBranch?: AdultEvolutionBranch;
   time: number;
@@ -97,8 +99,9 @@ const CELL_W = 340;
 const CELL_H = 260;
 
 function pickSpriteFrame(cat: CatRenderState): { row: number; col: number } {
-  // Slow down animation speed when sick (lemas, berjalan lambat)
-  const t = cat.isSick ? cat.animTime * 0.45 : cat.animTime;
+  // Slow down animation speed when sick or heavily drowsy (energy <= 20)
+  const isDrowsyHeavy = !cat.isSick && cat.energy <= 20;
+  const t = cat.isSick ? cat.animTime * 0.45 : isDrowsyHeavy ? cat.animTime * 0.56 : cat.animTime;
 
   if (cat.isSick && cat.behavior === 'SLEEPING') {
     return { row: 3, col: 2 };
@@ -133,7 +136,7 @@ function pickSpriteFrame(cat: CatRenderState): { row: number; col: number } {
       return { row: 7, col: Math.floor(t * 2.4) % 4 };
     }
     case 'WALKING': {
-      const walkSpeed = cat.isSick ? 2.6 : cat.hunger <= 12 ? 4.8 : 7.2;
+      const walkSpeed = cat.isSick ? 2.6 : cat.energy <= 20 ? 3.5 : cat.hunger <= 12 ? 4.8 : 7.2;
       return { row: 5, col: Math.floor(t * walkSpeed) % 5 };
     }
     case 'STRETCHING': {
@@ -350,7 +353,7 @@ export function drawFoodBowl(
       ctx.beginPath();
       ctx.ellipse(-6, -2, 6, 1.8, 0, 0, Math.PI * 2);
       ctx.fill();
-    } else if (bowl.treatType === 'salmon') {
+    } else if (bowl.treatType === 'salmon' || bowl.treatType === 'special_food') {
       ctx.scale(moundScale, moundScale);
       ctx.fillStyle = '#F2795A';
       ctx.strokeStyle = '#312924';
@@ -372,7 +375,7 @@ export function drawFoodBowl(
       ctx.moveTo(4, -3);
       ctx.lineTo(10, 1);
       ctx.stroke();
-    } else if (bowl.treatType === 'catnip') {
+    } else if (bowl.treatType === 'catnip' || bowl.treatType === 'snack') {
       ctx.scale(moundScale, moundScale);
       const biscuits = [
         [-9, -1],
@@ -667,16 +670,42 @@ export function drawCat(
   );
   const sheet = hasBabySheet ? babySheet : spriteSheets[cat.breed];
 
-  // Slow weak breathing slump & heavy step when sick and awake (no swaying when sleeping)
+  const isDrowsyHeavy =
+    !cat.isSick &&
+    (cat.drowsyStage
+      ? cat.drowsyStage === 'drowsy_heavy' || cat.drowsyStage === 'exhausted'
+      : cat.energy <= 20);
+  const isDrowsyLight =
+    !cat.isSick &&
+    (cat.drowsyStage ? cat.drowsyStage === 'drowsy_light' : cat.energy > 20 && cat.energy <= 40);
+  // Slow weak breathing slump, heavy step, and gentle head nod when sick or drowsy
   const weakSwayY =
-    cat.isSick && cat.behavior !== 'SLEEPING'
-      ? Math.sin(cat.time * 1.9) * 1.8 * s +
-        (cat.behavior === 'WALKING' ? Math.abs(Math.sin(cat.time * 2.8)) * 2.4 * s : 0)
+    (cat.isSick || isDrowsyHeavy) && cat.behavior !== 'SLEEPING'
+      ? Math.sin(cat.time * (cat.isSick ? 1.9 : 2.1)) * (cat.isSick ? 1.8 : 1.7) * s +
+        (cat.behavior === 'WALKING'
+          ? Math.abs(Math.sin(cat.time * 2.8)) * (cat.isSick ? 2.4 : 1.7) * s
+          : 0)
+      : isDrowsyLight && cat.behavior !== 'SLEEPING'
+      ? Math.sin(cat.time * 2.2) * 0.75 * s
       : 0;
   const rollTilt =
-    cat.isSick && cat.behavior === 'WALKING' ? Math.sin(cat.time * 2.8) * 0.035 : 0;
-  const sickDroopX = cat.isSick && cat.behavior !== 'SLEEPING' ? 1.035 : 1;
-  const sickDroopY = cat.isSick && cat.behavior !== 'SLEEPING' ? 0.935 : 1;
+    cat.behavior !== 'SLEEPING' && (cat.isSick || isDrowsyHeavy)
+      ? cat.behavior === 'WALKING'
+        ? Math.sin(cat.time * 2.8) * (cat.isSick ? 0.035 : 0.024)
+        : Math.sin(cat.time * 1.9) * 0.028
+      : 0;
+  const sickDroopX =
+    cat.isSick && cat.behavior !== 'SLEEPING'
+      ? 1.035
+      : isDrowsyHeavy && cat.behavior !== 'SLEEPING'
+      ? 1.022
+      : 1;
+  const sickDroopY =
+    cat.isSick && cat.behavior !== 'SLEEPING'
+      ? 0.935
+      : isDrowsyHeavy && cat.behavior !== 'SLEEPING'
+      ? 0.956
+      : 1;
   const rumbleScale =
     cat.isHungry && cat.hunger <= 15 && cat.behavior !== 'EATING' && !cat.isSick
       ? Math.sin(cat.time * 10) * 0.025
@@ -803,6 +832,16 @@ export function drawCat(
 
     if (cat.isSick && cat.behavior !== 'SLEEPING') {
       drawCatSickExpression(ctx, row, col, cat.breed, cat.time, isBabyStage);
+    } else if ((isDrowsyHeavy || isDrowsyLight) && cat.behavior !== 'SLEEPING') {
+      drawCatTiredExpression(
+        ctx,
+        row,
+        col,
+        cat.breed,
+        cat.time,
+        isDrowsyHeavy ? 'heavy' : 'light',
+        isBabyStage
+      );
     }
 
     drawCatAccessories(
@@ -938,7 +977,15 @@ function drawKittenStageCat(
 ): void {
   const profile = CAT_BREEDS[cat.breed];
   const isBaby = stage === 'baby';
-  const t = cat.isSick ? cat.animTime * 0.45 : cat.animTime;
+  const isDrowsyHeavy =
+    !cat.isSick &&
+    (cat.drowsyStage
+      ? cat.drowsyStage === 'drowsy_heavy' || cat.drowsyStage === 'exhausted'
+      : cat.energy <= 20);
+  const isDrowsyLight =
+    !cat.isSick &&
+    (cat.drowsyStage ? cat.drowsyStage === 'drowsy_light' : cat.energy > 20 && cat.energy <= 40);
+  const t = cat.isSick ? cat.animTime * 0.45 : isDrowsyHeavy ? cat.animTime * 0.56 : cat.animTime;
   const isSleeping = cat.behavior === 'SLEEPING';
   const isWalking = cat.behavior === 'WALKING' || cat.behavior === 'PLAYING';
   const isEating = cat.behavior === 'EATING';
@@ -1282,21 +1329,40 @@ function drawKittenStageCat(
   ctx.filter = 'none';
 
   const eyeCenterAnchor = { x: headX + 4.5, y: eyeCenterY };
-  if (cat.isSick) {
-    // Draw sick expression over kitten eyes
+  if (cat.isSick || isDrowsyHeavy || isDrowsyLight) {
+    const isLight = !cat.isSick && isDrowsyLight;
+    const lidHeight = isLight ? 3.1 : 4.6;
+    const lidY = isLight ? -3.4 : -2.5;
+    // Draw sick/drowsy droopy eyelids over kitten eyes
     ctx.save();
     ctx.translate(eyeCenterAnchor.x, eyeCenterAnchor.y);
     ctx.fillStyle = profile.primaryColor;
     ctx.strokeStyle = '#2B231E';
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = isLight ? 1.8 : 2.2;
     ctx.beginPath();
-    ctx.ellipse(-12, -2.5, 8, 4.5, -0.22, Math.PI, Math.PI * 2);
+    ctx.ellipse(-12, lidY, 8, lidHeight, cat.isSick ? -0.22 : 0, Math.PI, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.beginPath();
-    ctx.ellipse(12, -2.5, 8, 4.5, 0.22, Math.PI, Math.PI * 2);
+    ctx.ellipse(12, lidY, 8, lidHeight, cat.isSick ? 0.22 : 0, Math.PI, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+
+    // Periodic sleepy yawn mouth when drowsy
+    if (!cat.isSick && cat.behavior !== 'EATING') {
+      const cycle = isLight ? 8.5 : 4.8;
+      const phase = cat.time % cycle;
+      if (phase < 1.05) {
+        const open = Math.sin((phase / 1.05) * Math.PI);
+        ctx.fillStyle = '#FB7185';
+        ctx.strokeStyle = '#2B231E';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.ellipse(1, 13.5, 4.2, Math.max(1.5, 5.2 * open), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 
@@ -1648,6 +1714,69 @@ function drawCatSickExpression(
   ctx.quadraticCurveTo(-31, -8 + dropOffset, -27, -14 + dropOffset);
   ctx.fill();
   ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawCatTiredExpression(
+  ctx: CanvasRenderingContext2D,
+  row: number,
+  col: number,
+  breed: CatBreed,
+  time: number,
+  tier: 'light' | 'heavy' = 'heavy',
+  isBaby = false
+): void {
+  const anchors = isBaby ? getBabyAccessoryAnchors(row, col) : getCatAccessoryAnchors(row, col);
+  const a = anchors.glasses;
+  const furColor = CAT_BREEDS[breed].primaryColor;
+  const isLight = tier === 'light';
+  const lidY = isLight ? -4.2 : -3;
+  const lidH = isLight ? 3.2 : 5.0;
+  const lashY = isLight ? -3.7 : -2.4;
+
+  ctx.save();
+  ctx.translate(a.x, a.y);
+  ctx.rotate(a.rot);
+  ctx.scale(a.scale, a.scale);
+
+  // Mildly droopy (21-40) or heavily droopy (<=20) eyelids
+  ctx.fillStyle = furColor;
+  ctx.strokeStyle = '#2B231E';
+  ctx.lineWidth = isLight ? 1.8 : 2.2;
+  ctx.beginPath();
+  ctx.ellipse(-14, lidY, 8.8, lidH, 0, Math.PI, Math.PI * 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-22.5, lashY);
+  ctx.lineTo(-5.5, lashY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.ellipse(14, lidY, 8.8, lidH, 0, Math.PI, Math.PI * 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(5.5, lashY);
+  ctx.lineTo(22.5, lashY);
+  ctx.stroke();
+
+  // Periodic yawning oval mouth
+  if (row !== 0) {
+    const cycle = isLight ? 8.5 : 4.8;
+    const phase = time % cycle;
+    if (phase < 1.05) {
+      const open = Math.sin((phase / 1.05) * Math.PI);
+      ctx.fillStyle = '#FB7185';
+      ctx.strokeStyle = '#2B231E';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.ellipse(0, 14.5, 4.6, Math.max(1.5, 5.8 * open), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
 
   ctx.restore();
 }

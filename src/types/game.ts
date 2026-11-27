@@ -17,7 +17,246 @@ export type CatBehavior =
 
 export type ToolMode = 'PET' | 'BRUSH' | 'TOY';
 
-export type BowlTreatType = 'kibble' | 'salmon' | 'milk' | 'catnip';
+export type BowlTreatType =
+  | 'kibble'
+  | 'salmon'
+  | 'milk'
+  | 'catnip'
+  | 'snack'
+  | 'main_food'
+  | 'special_food';
+
+export type FoodItemId = 'snack' | 'main_food' | 'special_food';
+export type BathItemId = 'basic_soap' | 'shampoo_foam' | 'spa_bath';
+export type SleepMode = 'none' | 'power_nap' | 'full_rest' | 'auto_sleep';
+export type DrowsyStage = 'fresh' | 'drowsy_light' | 'drowsy_heavy' | 'exhausted';
+export type DayPhase = 'pagi' | 'siang' | 'malam';
+
+export interface ActionCooldownsSec {
+  snack: number;
+  basicSoap: number;
+  miniGame: number;
+  interactivePlay: number;
+  petShort: number;
+  petFull: number;
+  sleepManual: number;
+}
+
+export const INITIAL_COOLDOWNS: ActionCooldownsSec = {
+  snack: 0,
+  basicSoap: 0,
+  miniGame: 0,
+  interactivePlay: 0,
+  petShort: 0,
+  petFull: 0,
+  sleepManual: 0,
+};
+
+export interface ConsumableInventory {
+  main_food: number;
+  special_food: number;
+  shampoo_foam: number;
+  spa_bath: number;
+}
+
+export const INITIAL_INVENTORY: ConsumableInventory = {
+  main_food: 0,
+  special_food: 0,
+  shampoo_foam: 0,
+  spa_bath: 0,
+};
+
+export interface FoodItemOption {
+  id: FoodItemId;
+  name: string;
+  shortName: string;
+  description: string;
+  note: string;
+  isFree: boolean;
+  price: number;
+  cooldownSec: number;
+  hungerDelta: number;
+  happinessDelta: number;
+  energyDelta: number;
+}
+
+export const FOOD_ITEMS: FoodItemOption[] = [
+  {
+    id: 'snack',
+    name: 'Camilan Ringan / Snack',
+    shortName: 'Camilan Ringan',
+    description: '+15 Kenyang · +10 Bahagia',
+    note: 'Gratis (cooldown 2 mnt); ditolak jika Bahagia sudah 100.',
+    isFree: true,
+    price: 0,
+    cooldownSec: 120,
+    hungerDelta: 15,
+    happinessDelta: 10,
+    energyDelta: 0,
+  },
+  {
+    id: 'main_food',
+    name: 'Makanan Utama / Standar',
+    shortName: 'Makanan Utama',
+    description: '+30 Kenyang · +5 Bahagia',
+    note: 'Stok Shop (tanpa cooldown); ditolak jika Kenyang sudah 100.',
+    isFree: false,
+    price: 10,
+    cooldownSec: 0,
+    hungerDelta: 30,
+    happinessDelta: 5,
+    energyDelta: 0,
+  },
+  {
+    id: 'special_food',
+    name: 'Makanan Spesial / Porsi Besar',
+    shortName: 'Makanan Spesial',
+    description: '+50 Kenyang · +15 Bahagia',
+    note: 'Stok Shop (tanpa cooldown); ditolak jika Kenyang sudah 100.',
+    isFree: false,
+    price: 18,
+    cooldownSec: 0,
+    hungerDelta: 50,
+    happinessDelta: 15,
+    energyDelta: 0,
+  },
+];
+
+export interface BathItemOption {
+  id: BathItemId;
+  name: string;
+  shortName: string;
+  description: string;
+  note: string;
+  isFree: boolean;
+  price: number;
+  cooldownSec: number;
+  cleanlinessDelta: number;
+  happinessDelta: number;
+}
+
+export const BATH_ITEMS: BathItemOption[] = [
+  {
+    id: 'basic_soap',
+    name: 'Sabun Dasar / Lap Basah',
+    shortName: 'Sabun Dasar',
+    description: '+35 Bersih · +5 Bahagia',
+    note: 'Gratis (cooldown 3 mnt); ditolak jika Bersih sudah 100.',
+    isFree: true,
+    price: 0,
+    cooldownSec: 180,
+    cleanlinessDelta: 35,
+    happinessDelta: 5,
+  },
+  {
+    id: 'shampoo_foam',
+    name: 'Shampo & Bath Foam',
+    shortName: 'Shampo & Foam',
+    description: '+60 Bersih · +10 Bahagia',
+    note: 'Stok Shop (tanpa cooldown); ditolak jika Bersih sudah 100.',
+    isFree: false,
+    price: 12,
+    cooldownSec: 0,
+    cleanlinessDelta: 60,
+    happinessDelta: 10,
+  },
+  {
+    id: 'spa_bath',
+    name: 'Mandi Spa / Bath Bomb',
+    shortName: 'Mandi Spa',
+    description: '+100 Bersih · +20 Bahagia',
+    note: 'Stok Shop (tanpa cooldown); bersih penuh & cegah efek negatif.',
+    isFree: false,
+    price: 22,
+    cooldownSec: 0,
+    cleanlinessDelta: 100,
+    happinessDelta: 20,
+  },
+];
+
+export type ManualSleepMode = 'power_nap' | 'full_rest';
+
+export interface SleepOption {
+  id: ManualSleepMode;
+  name: string;
+  shortName: string;
+  durationSec: number;
+  durationLabel: string;
+  cooldownAfterWakeSec: number;
+  energyDelta: number;
+  happinessDelta: number;
+  hungerDelta: number;
+  cleanlinessDelta: number;
+  description: string;
+}
+
+export const SLEEP_OPTIONS: SleepOption[] = [
+  {
+    id: 'power_nap',
+    name: 'Tidur Singkat (Power Nap)',
+    shortName: 'Power Nap',
+    durationSec: 180, // 3 menit nyata
+    durationLabel: '3 mnt · CD 3 mnt',
+    cooldownAfterWakeSec: 180, // 3 menit setelah bangun
+    energyDelta: 40,
+    happinessDelta: 5,
+    hungerDelta: -5,
+    cleanlinessDelta: 0,
+    description: '+40 Energi · +5 Bahagia · -5 Kenyang',
+  },
+  {
+    id: 'full_rest',
+    name: 'Tidur Pulih Penuh',
+    shortName: 'Tidur Penuh',
+    durationSec: 600, // 10 menit nyata
+    durationLabel: '10 mnt · CD 5 mnt',
+    cooldownAfterWakeSec: 300, // 5 menit setelah bangun
+    energyDelta: 100,
+    happinessDelta: 10,
+    hungerDelta: -12,
+    cleanlinessDelta: -2,
+    description: '+100 Energi · +10 Bahagia · -12 Kenyang · -2 Bersih',
+  },
+];
+
+export const AUTO_SLEEP_CONFIG = {
+  durationSec: 240, // 4 menit nyata (3-5 menit)
+  energyDelta: 35, // Pulih minimal ke 30-40 poin
+  happinessDelta: 0,
+  hungerDelta: 0,
+  cleanlinessDelta: 0,
+} as const;
+
+export const OVERWORK_SICK_SECONDS = 600; // 10 menit nyata bertahan di Energi 0
+
+export const ACTION_DELTAS = {
+  playMiniGame: {
+    happiness: 25,
+    energy: -10,
+    hunger: -5,
+    cleanliness: -3,
+    cooldownSec: 60,
+  },
+  playInteractiveFull: {
+    happiness: 45,
+    energy: -15,
+    hunger: -10,
+    cleanliness: -6,
+    cooldownSec: 120,
+  },
+  petShort: {
+    happiness: 15,
+    energy: 0,
+    hunger: 0,
+    cooldownSec: 30,
+  },
+  petFull: {
+    happiness: 25,
+    energy: 0,
+    hunger: -2,
+    cooldownSec: 60,
+  },
+} as const;
 
 export type HungerSpeed = 'santai' | 'normal';
 
@@ -27,11 +266,15 @@ export type LifeStage = 'baby' | 'child' | 'teen' | 'adult' | 'senior';
 
 export type AdultEvolutionBranch = 'prima' | 'mandiri' | 'sensitif';
 
+export type DeathReason = 'sickness' | 'old_age' | null;
+
 export interface LifeStageMeta {
   id: LifeStage;
   label: string;
   shortLabel: string;
-  durationSec: number; // 0 if determined by day/final
+  durationSec: number;
+  realDurationLabel: string;
+  calendarLabel: string;
   description: string;
   decayNote: string;
   imgSrc?: string;
@@ -42,44 +285,54 @@ export const LIFE_STAGES: Record<LifeStage, LifeStageMeta> = {
     id: 'baby',
     label: 'Bayi',
     shortLabel: 'Bayi',
-    durationSec: 5 * 60, // 5 menit waktu game
+    durationSec: 60 * 60, // 60 menit nyata (Jam 0–73, Hari 0–3)
+    realDurationLabel: '60 menit',
+    calendarLabel: 'Hari ke-0 s/d ke-3 (Jam 0–73)',
     description: 'Baru lahir, sangat menggemaskan namun butuh perhatian ekstra.',
-    decayNote: 'Statistik cepat turun · Mini-game belum terbuka',
+    decayNote: 'Kenyang/Bahagia -20/15m · Bersih -20/25m · Energi -20/18m',
     imgSrc: '/src/assets/images/cat_stage_baby_1795704818280.jpg',
   },
   child: {
     id: 'child',
     label: 'Anak',
     shortLabel: 'Anak',
-    durationSec: 15 * 60, // 15 menit waktu game
+    durationSec: 24 * 60 * 60, // 24 jam nyata (Hari ke-1)
+    realDurationLabel: '24 jam',
+    calendarLabel: 'Hari ke-1',
     description: 'Aktif dan penuh rasa ingin tahu! Mini-game sudah bisa dimainkan.',
-    decayNote: 'Mini-game terbuka · Perawatan mulai dinilai',
+    decayNote: 'Kenyang/Bahagia -20/50m · Bersih -20/80m · Energi -20/60m',
     imgSrc: '/src/assets/images/cat_stage_child_1795704819143.jpg',
   },
   teen: {
     id: 'teen',
     label: 'Remaja',
     shortLabel: 'Remaja',
-    durationSec: 20 * 60, // 20 menit waktu game
+    durationSec: 48 * 60 * 60, // 48 jam nyata (Hari ke-2 s/d ke-3)
+    realDurationLabel: '48 jam',
+    calendarLabel: 'Hari ke-2 s/d ke-3',
     description: 'Fase penentuan evolusi dewasa berdasarkan riwayat perawatanmu.',
-    decayNote: 'Penentuan percabangan evolusi Dewasa',
+    decayNote: 'Kenyang/Bahagia -20/60m · Bersih -20/95m · Energi -20/75m',
     imgSrc: '/src/assets/images/cat_stage_teen_1795704819351.jpg',
   },
   adult: {
     id: 'adult',
     label: 'Dewasa',
     shortLabel: 'Dewasa',
-    durationSec: 0, // Evolusi ke Senior setelah Hari ke-10
+    durationSec: 8 * 24 * 60 * 60, // 8 hari nyata (Hari ke-4 s/d ke-11)
+    realDurationLabel: '8 hari',
+    calendarLabel: 'Hari ke-4 s/d ke-11',
     description: 'Bentuk dewasa penuh sesuai hasil perawatan fase Anak & Remaja.',
-    decayNote: 'Bentuk dewasa penuh · Menuju fase Tua',
+    decayNote: 'Kenyang/Bahagia -20/75–90m · Bersih -20/120–140m · Energi -20/90–110m',
   },
   senior: {
     id: 'senior',
     label: 'Tua (Senior)',
     shortLabel: 'Tua',
-    durationSec: 0,
-    description: 'Kucing senior yang bijak dan manja setelah menemanimu 10+ hari.',
-    decayNote: 'Penurunan statistik lebih cepat · Butuh kasih sayang',
+    durationSec: 7 * 24 * 60 * 60, // 7 hari nyata (Hari ke-12 s/d ke-18, lalu Wafat)
+    realDurationLabel: '7 hari (Wafat > Hari 18)',
+    calendarLabel: 'Hari ke-12 s/d ke-18',
+    description: 'Kucing senior yang bijak dan manja di hari ke-12 hingga hari ke-18.',
+    decayNote: 'Kenyang/Bahagia -20/20–30m · Bersih -20/35–45m · Energi -20/25–35m',
     imgSrc: '/src/assets/images/cat_stage_senior_1795704819383.jpg',
   },
 };
@@ -91,19 +344,19 @@ export const ADULT_BRANCHES: Record<
   prima: {
     id: 'prima',
     label: 'Dewasa Prima',
-    description: 'Tumbuh sangat sehat & terawat (+15% ketahanan energi & +1 koin bonus).',
+    description: 'Terawat optimal: interval turun terlambat (90m/140m/110m) & +1 koin bonus.',
     maxMistakesLabel: '0–2 Care Mistakes',
   },
   mandiri: {
     id: 'mandiri',
     label: 'Dewasa Mandiri',
-    description: 'Tangkas dan seimbang dengan ketahanan tubuh standar.',
+    description: 'Tangkas dan seimbang dengan ketahanan tubuh standar (82,5m/130m/100m).',
     maxMistakesLabel: '3–5 Care Mistakes',
   },
   sensitif: {
     id: 'sensitif',
     label: 'Dewasa Sensitif',
-    description: 'Lebih manja dan cepat merasa kesepian, butuh perhatian lebih.',
+    description: 'Lebih manja dan cepat merasa lapar/kesepian (75m/120m/90m).',
     maxMistakesLabel: '6+ Care Mistakes',
   },
 };
@@ -488,6 +741,10 @@ export interface CatHudSnapshot {
   level: number;
   coins: number;
   day: number;
+  gameHours: number;
+  gameHour: number;
+  dayPhase: DayPhase;
+  isDusk: boolean;
   timeOfDay: number;
   weather: WeatherType;
   lifeStage: LifeStage;
@@ -496,6 +753,8 @@ export interface CatHudSnapshot {
   careMistakes: number;
   adultBranch: AdultEvolutionBranch;
   miniGameUnlocked: boolean;
+  deathReason: DeathReason;
+  personality: CatPersonality;
   bowlAmount: number;
   freeFeedCooldownSec: number;
   totalCatches: number;
@@ -510,9 +769,56 @@ export interface CatHudSnapshot {
   equippedGlasses: CatGlassesId;
   equippedScarf: CatScarfId;
   unlockedAccessories: CatAccessoryId[];
+  inventory: ConsumableInventory;
+  sleepMode: SleepMode;
+  sleepRemainingSec: number;
+  sleepDurationSec: number;
+  drowsyStage: DrowsyStage;
+  cooldownsSec: ActionCooldownsSec;
   moodLabel: string;
   warningText: string | null;
 }
+
+export type DevTimeScale = 1 | 5 | 20 | 60;
+
+export interface DevStatePatch {
+  hunger?: number;
+  happiness?: number;
+  cleanliness?: number;
+  energy?: number;
+  health?: number;
+  isSick?: boolean;
+  sickReason?: 'health' | 'dirty_zero' | 'chronic_dirty' | 'overwork' | null;
+  coins?: number;
+  level?: number;
+  affectionXp?: number;
+  day?: number;
+  gameHour?: number;
+  weather?: WeatherType;
+  lifeStage?: LifeStage;
+  stageProgressPct?: number;
+  adultBranch?: AdultEvolutionBranch;
+  careMistakes?: number;
+  breed?: CatBreed;
+  personality?: CatPersonality;
+  bowlAmount?: number;
+  inventory?: Partial<ConsumableInventory>;
+}
+
+export type DevQuickAction =
+  | 'reset_cooldowns'
+  | 'unlock_all_shop'
+  | 'fill_inventory'
+  | 'advance_time_10m'
+  | 'advance_time_1h'
+  | 'advance_time_6h'
+  | 'evolve_next'
+  | 'trigger_auto_sleep'
+  | 'wake_up_free'
+  | 'trigger_lightning'
+  | 'heal_instant'
+  | 'force_game_over_sick'
+  | 'force_game_over_old';
 
 export interface SaveData {
   name: string;
@@ -528,6 +834,7 @@ export interface SaveData {
   level: number;
   coins: number;
   day: number;
+  gameHour?: number;
   timeOfDay: number;
   weather?: WeatherType;
   lifeStage?: LifeStage;
@@ -546,6 +853,28 @@ export interface SaveData {
   equippedGlasses?: CatGlassesId;
   equippedScarf?: CatScarfId;
   unlockedAccessories?: CatAccessoryId[];
+  inventory?: Partial<ConsumableInventory>;
+  sleepMode?: SleepMode;
+  sleepRemainingSec?: number;
+  sleepDurationSec?: number;
+  sleepTargetEnergy?: number;
+  sleepTargetHappy?: number;
+  sleepTargetHunger?: number;
+  sleepTargetClean?: number;
+  sleepAppliedEnergy?: number;
+  sleepAppliedHappy?: number;
+  sleepAppliedHunger?: number;
+  sleepAppliedClean?: number;
+  zeroEnergyElapsedSec?: number;
+  cooldownsUntil?: {
+    snack?: number;
+    basicSoap?: number;
+    miniGame?: number;
+    interactivePlay?: number;
+    petShort?: number;
+    petFull?: number;
+    sleepManual?: number;
+  };
   bedNx?: number;
   bedNy?: number;
   lastFreeFeedAt?: number;

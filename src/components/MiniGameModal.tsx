@@ -7,6 +7,7 @@ import { CatEarsHeaderPlaque } from './WoodPanelChrome';
 interface MiniGameModalProps {
   open: boolean;
   catName: string;
+  isRaining?: boolean;
   onClose: () => void;
   onComplete: (coinsEarned: number, happinessGain: number) => void;
 }
@@ -24,6 +25,7 @@ const GAME_DURATION_SEC = 20;
 export const MiniGameModal: React.FC<MiniGameModalProps> = ({
   open,
   catName,
+  isRaining = false,
   onClose,
   onComplete,
 }) => {
@@ -85,7 +87,8 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
   if (!open) return null;
 
   const coinsReward = Math.min(24, Math.max(2, Math.round(score / 2)));
-  const happyReward = Math.min(28, 10 + Math.round(score * 0.6));
+  const happyReward = isRaining ? 30 : 25;
+  const cleanCostDisplay = isRaining ? 5 : 3;
 
   const handleCatch = (target: PondTarget) => {
     if (finished) return;
@@ -97,7 +100,7 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
   };
 
   const handleFinishClaim = () => {
-    onComplete(coinsReward, happyReward);
+    onComplete(coinsReward, 25);
     onClose();
   };
 
@@ -122,7 +125,12 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
             <OrnateCornerFlourishes className="short:w-3 short:h-3" />
 
             <div className="flex items-center justify-between gap-3 mb-2.5 short:mb-1.5 text-xs short:text-[11px] font-extrabold text-[#5A2D12]">
-              <span>Bantu {catName} tangkap ikan & bintang!</span>
+              <span>
+                Bantu {catName} tangkap ikan di kolam!
+                {isRaining && (
+                  <span className="ml-1.5 text-[#0369A1]">(Hujan: +5 Bahagia · -2 Bersih)</span>
+                )}
+              </span>
               <div className="flex items-center gap-2.5 tabular-nums">
                 <span className="px-2.5 py-1 rounded-full bg-[#FEF3C7] border border-[#D97706]">
                   Skor: {score}
@@ -140,10 +148,25 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
             </div>
 
             {!finished ? (
-              <div className="relative w-full h-52 sm:h-60 short:h-40 rounded-2xl border-2 border-[#1E4627]/40 bg-gradient-to-b from-[#BAE6FD] via-[#7DD3FC] to-[#38BDF8] overflow-hidden shadow-inner select-none">
-                {/* Subtle water ripples */}
+              <div
+                className={`relative w-full h-52 sm:h-60 short:h-40 rounded-2xl border-2 border-[#1E4627]/40 overflow-hidden shadow-inner select-none ${
+                  isRaining
+                    ? 'bg-gradient-to-b from-[#64748B] via-[#475569] to-[#0284C7]'
+                    : 'bg-gradient-to-b from-[#BAE6FD] via-[#7DD3FC] to-[#38BDF8]'
+                }`}
+              >
+                {/* Subtle water ripples & rain effect */}
                 <div className="pointer-events-none absolute inset-x-6 top-6 h-1 rounded-full bg-white/35" />
                 <div className="pointer-events-none absolute inset-x-14 bottom-8 h-1 rounded-full bg-white/30" />
+                {isRaining && (
+                  <div
+                    className="pointer-events-none absolute inset-0 opacity-35"
+                    style={{
+                      backgroundImage:
+                        'repeating-linear-gradient(108deg, rgba(224,242,254,0.55) 0px, rgba(224,242,254,0.55) 1.5px, transparent 1.5px, transparent 18px)',
+                    }}
+                  />
+                )}
 
                 {targets.map((t) => (
                   <button
@@ -177,7 +200,7 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
                     Selesai! Skor {score} Poin
                   </h3>
                   <p className="text-xs short:text-[11px] font-bold text-[#6E4423] mt-0.5">
-                    Hadiah: +{coinsReward} Koin · +{happyReward} Bahagia · +12 XP Ikatan
+                    Hadiah: +{coinsReward} Koin · +{happyReward} Bahagia{isRaining ? ' (Hujan +5)' : ''} · -10 Energi · -5 Kenyang · -{cleanCostDisplay} Bersih · +12 XP Ikatan
                   </p>
                 </div>
                 <button

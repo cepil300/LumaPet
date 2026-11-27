@@ -225,7 +225,7 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                         Notifikasi Makan
                       </p>
                       <p className="text-xs short:text-[10px] text-[#7A4928]">
-                        Ingatkan saat kenyang tinggal 20%
+                        Ingatkan saat kenyang di bawah 40%
                       </p>
                     </div>
                     <button
@@ -266,7 +266,9 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                 <>
                   {isGameOver && (
                     <p className="text-center text-sm short:text-xs font-semibold text-[#6B4A35] mb-3 short:mb-2">
-                      Arwah {hud.name} terbang tenang ke negeri awan karena sakitnya tidak sempat diobati.
+                      {hud.deathReason === 'old_age'
+                        ? `${hud.name} telah menua dengan penuh kasih dan berpulang dengan tenang setelah menemanimu hingga Hari ke-${hud.day}.`
+                        : `Arwah ${hud.name} terbang tenang ke negeri awan karena sakitnya tidak sempat diobati.`}
                     </p>
                   )}
 

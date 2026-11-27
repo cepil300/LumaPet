@@ -1,5 +1,5 @@
 import React from 'react';
-import { CatAccessoryId } from '../types/game';
+import { BathItemId, CatAccessoryId, FoodItemId } from '../types/game';
 
 interface IconProps {
   className?: string;
@@ -633,3 +633,148 @@ export const OrnateCornerFlourishes: React.FC<{ className?: string }> = ({ class
     </svg>
   </>
 );
+
+export const FoodItemIcon: React.FC<IconProps & { variant: FoodItemId }> = ({
+  className = 'w-12 h-12',
+  variant,
+}) => {
+  if (variant === 'snack') {
+    return (
+      <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
+        <path
+          d="M5 17.5C7 13 12 12 16.5 14.5L20.5 11.5V21.5L16.5 18.5C12 21 7 20 5 17.5Z"
+          fill="#F4C27F"
+          stroke="#5E351B"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <circle cx="10.5" cy="16.5" r="1.2" fill="#5E351B" />
+        <path
+          d="M14.5 9.5C16.2 7 19.8 6.5 23 8.2L26 6V13.4L23 11.2C19.8 13 16.2 12.5 14.5 9.5Z"
+          fill="#E8A45C"
+          stroke="#5E351B"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <circle cx="24" cy="22" r="2.2" fill="#FDE68A" stroke="#5E351B" strokeWidth="1.4" />
+      </svg>
+    );
+  }
+  if (variant === 'main_food') {
+    return (
+      <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
+        <path
+          d="M5 19H27L25 26C24.6 27.2 23.4 28 22 28H10C8.6 28 7.4 27.2 7 26L5 19Z"
+          fill="#E88B38"
+          stroke="#5E351B"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <ellipse cx="16" cy="18.5" rx="11" ry="3.6" fill="#FFFDF5" stroke="#5E351B" strokeWidth="2" />
+        <circle cx="11.5" cy="16.5" r="2.4" fill="#9C6234" stroke="#5E351B" strokeWidth="1.3" />
+        <circle cx="16" cy="14.8" r="2.6" fill="#B57745" stroke="#5E351B" strokeWidth="1.3" />
+        <circle cx="20.5" cy="16.5" r="2.4" fill="#9C6234" stroke="#5E351B" strokeWidth="1.3" />
+        <circle cx="14" cy="17.8" r="2.1" fill="#C98A54" stroke="#5E351B" strokeWidth="1.2" />
+        <circle cx="18.5" cy="17.8" r="2.1" fill="#C98A54" stroke="#5E351B" strokeWidth="1.2" />
+      </svg>
+    );
+  }
+  return <SalmonTreatIcon className={className} />;
+};
+
+export const BathItemIcon: React.FC<IconProps & { variant: BathItemId }> = ({
+  className = 'w-12 h-12',
+  variant,
+}) => {
+  if (variant === 'basic_soap') {
+    return (
+      <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
+        <rect
+          x="5"
+          y="13"
+          width="18"
+          height="11"
+          rx="4.5"
+          transform="rotate(-8 5 13)"
+          fill="#BAE6FD"
+          stroke="#5E351B"
+          strokeWidth="2"
+        />
+        <rect
+          x="8.5"
+          y="15.5"
+          width="11"
+          height="4.5"
+          rx="2"
+          transform="rotate(-8 8.5 15.5)"
+          fill="#E0F2FE"
+        />
+        <circle cx="24" cy="10" r="3" fill="#FFFDF9" stroke="#38BDF8" strokeWidth="1.6" />
+        <circle cx="27" cy="16" r="2" fill="#FFFDF9" stroke="#38BDF8" strokeWidth="1.4" />
+        <circle cx="19" cy="8" r="1.8" fill="#FFFDF9" stroke="#38BDF8" strokeWidth="1.4" />
+      </svg>
+    );
+  }
+  if (variant === 'shampoo_foam') {
+    return (
+      <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
+        <path d="M16 4V9M13 4H20" stroke="#5E351B" strokeWidth="2.2" strokeLinecap="round" />
+        <rect x="13" y="8" width="6" height="3.5" rx="1" fill="#FDE68A" stroke="#5E351B" strokeWidth="1.6" />
+        <rect
+          x="9.5"
+          y="11.5"
+          width="13"
+          height="16"
+          rx="4"
+          fill="#7DD3FC"
+          stroke="#5E351B"
+          strokeWidth="2"
+        />
+        <rect x="12" y="15.5" width="8" height="6.5" rx="1.5" fill="#FFFDF9" />
+        <circle cx="24.5" cy="11" r="2.8" fill="#FFFFFF" stroke="#38BDF8" strokeWidth="1.5" />
+        <circle cx="7" cy="16" r="2.2" fill="#FFFFFF" stroke="#38BDF8" strokeWidth="1.4" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
+      <circle cx="16" cy="17.5" r="9.5" fill="#FBCFE8" stroke="#5E351B" strokeWidth="2" />
+      <path d="M7 17.5Q16 21 25 17.5" stroke="#F472B6" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="12.5" cy="14" r="2" fill="#FFFDF9" fillOpacity="0.8" />
+      <circle cx="24" cy="8.5" r="2.4" fill="#E0F2FE" stroke="#38BDF8" strokeWidth="1.4" />
+      <circle cx="8" cy="10" r="2" fill="#E0F2FE" stroke="#38BDF8" strokeWidth="1.4" />
+      <path d="M16 4L17 6.5L19.5 7.5L17 8.5L16 11L15 8.5L12.5 7.5L15 6.5L16 4Z" fill="#FBBF24" />
+    </svg>
+  );
+};
+
+export const PetHandIcon: React.FC<IconProps> = ({ className = 'w-12 h-12' }) => (
+  <svg viewBox="0 0 36 36" fill="none" className={className} aria-hidden="true">
+    <circle cx="18" cy="18" r="15.5" fill="#FFF3D9" stroke="#5E2F12" strokeWidth="2.4" />
+    <path
+      d="M18 27.5C18 27.5 8.5 21.5 8.5 14.8C8.5 11.8 10.8 9.6 13.6 9.6C15.4 9.6 17 10.6 18 12.1C19 10.6 20.6 9.6 22.4 9.6C25.2 9.6 27.5 11.8 27.5 14.8C27.5 21.5 18 27.5 18 27.5Z"
+      fill="#F45B84"
+      stroke="#5E2F12"
+      strokeWidth="2"
+      strokeLinejoin="round"
+    />
+    <ellipse cx="13.5" cy="14" rx="2" ry="1.2" transform="rotate(-25 13.5 14)" fill="#FFC4D6" />
+  </svg>
+);
+
+export const ShopBathTabIcon: React.FC<IconProps> = ({ className = 'w-5 h-5' }) => (
+  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <path
+      d="M4 13H20L18.5 18.5C18 19.8 16.8 20.5 15.5 20.5H8.5C7.2 20.5 6 19.8 5.5 18.5L4 13Z"
+      fill="#93C5FD"
+      stroke="#5E2F12"
+      strokeWidth="1.8"
+      strokeLinejoin="round"
+    />
+    <path d="M3 13H21" stroke="#5E2F12" strokeWidth="2" strokeLinecap="round" />
+    <circle cx="9" cy="8.5" r="2.2" fill="#FFFDF9" stroke="#38BDF8" strokeWidth="1.5" />
+    <circle cx="14.5" cy="6.5" r="2.5" fill="#FFFDF9" stroke="#38BDF8" strokeWidth="1.5" />
+    <circle cx="18" cy="9.5" r="1.6" fill="#FFFDF9" stroke="#38BDF8" strokeWidth="1.3" />
+  </svg>
+);
+

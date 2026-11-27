@@ -23,12 +23,25 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
 
   const currentIdx = STAGE_ORDER.indexOf(hud.lifeStage);
   const currentMeta = LIFE_STAGES[hud.lifeStage];
-  const hasTimedNext = hud.stageDurationSec > 0;
-  const pct = hasTimedNext
-    ? Math.min(100, Math.round((hud.stageElapsedSec / hud.stageDurationSec) * 100))
-    : hud.lifeStage === 'adult'
-    ? Math.min(100, Math.round((hud.day / 10) * 100))
-    : 100;
+  const pct =
+    hud.stageDurationSec > 0
+      ? Math.min(100, Math.round((hud.stageElapsedSec / hud.stageDurationSec) * 100))
+      : 100;
+
+  const formatRemaining = (): string => {
+    const remainSec = Math.max(0, hud.stageDurationSec - hud.stageElapsedSec);
+    if (hud.lifeStage === 'baby') {
+      const mins = Math.ceil(remainSec / 60);
+      return `Sisa ${mins}m · Jam ${Math.floor(hud.gameHours)}/73`;
+    }
+    const totalHours = Math.ceil(remainSec / 3600);
+    if (totalHours >= 48) {
+      const days = Math.floor(totalHours / 24);
+      const hrs = totalHours % 24;
+      return `Sisa ${days}h ${hrs}j`;
+    }
+    return `Sisa ${totalHours}j`;
+  };
 
   return (
     <div
@@ -78,6 +91,9 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                       </span>
                     )}
                   </div>
+                  <p className="text-[11px] short:text-[10px] font-bold text-[#8C4A1F] mt-0.5">
+                    {currentMeta.calendarLabel} · Durasi {currentMeta.realDurationLabel}
+                  </p>
                   <p className="text-xs short:text-[10.5px] font-semibold text-[#6E4423] mt-0.5">
                     {currentMeta.decayNote}
                   </p>
@@ -87,15 +103,11 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
               <div className="w-full sm:w-56 short:w-48 shrink-0">
                 <div className="flex items-center justify-between text-[11px] short:text-[10px] font-extrabold text-[#5A2D12] mb-1">
                   <span>
-                    {hasTimedNext
-                      ? 'Menuju Fase Berikutnya'
-                      : hud.lifeStage === 'adult'
-                      ? 'Menuju Fase Tua'
-                      : 'Fase Maksimal'}
+                    {hud.lifeStage === 'senior'
+                      ? 'Usia Senior (H.12–18)'
+                      : 'Menuju Fase Berikutnya'}
                   </span>
-                  <span className="tabular-nums">
-                    {hud.lifeStage === 'senior' ? 'Senior' : `${pct}%`}
-                  </span>
+                  <span className="tabular-nums">{pct}%</span>
                 </div>
                 <div className="w-full h-3 short:h-2.5 rounded-full bg-[#EFE2C8] border-2 border-[#7A4928] overflow-hidden">
                   <div
@@ -103,10 +115,10 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <p className="text-[11px] short:text-[9.5px] font-bold text-[#7A4928] mt-1 flex items-center justify-between">
-                  <span>Care Mistakes (Anak–Remaja):</span>
+                <p className="text-[11px] short:text-[9.5px] font-bold text-[#7A4928] mt-1 flex items-center justify-between gap-2">
+                  <span className="tabular-nums">{formatRemaining()}</span>
                   <span className="font-black text-[#4A2510] tabular-nums">
-                    {hud.careMistakes}x
+                    Mistake: {hud.careMistakes}x
                   </span>
                 </p>
               </div>
@@ -151,6 +163,12 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                     </div>
                     <span className="font-display font-extrabold text-xs short:text-[10.5px] text-[#4A2510] leading-tight">
                       {meta.shortLabel}
+                    </span>
+                    <span className="text-[10px] short:text-[8.5px] font-bold text-[#7A4928] leading-tight mt-0.5">
+                      {meta.realDurationLabel}
+                    </span>
+                    <span className="text-[9.5px] short:text-[8px] text-[#8C582E] leading-tight">
+                      {meta.calendarLabel}
                     </span>
                     {isCurrent && (
                       <span className="mt-1 px-1.5 py-0.5 rounded-full bg-[#2D6A4F] text-white text-[9px] font-extrabold">
