@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @custom-variant short (@media (max-height: 540px));
+@custom-variant mobile (@media (max-width: 767px), (max-height: 540px));
 
 @layer base {
   :root {
@@ -42,6 +43,15 @@
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
 
+@media (max-width: 767px), (max-height: 540px) {
+  .safe-inset-hud {
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+    padding-top: max(0.375rem, env(safe-area-inset-top));
+    padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
+  }
+}
+
 .font-display {
   font-family: var(--font-display);
 }
@@ -61,6 +71,19 @@
 
 .animate-float-ghost {
   animation: floatGhost 2.6s ease-in-out infinite;
+}
+
+@keyframes marqueeLtr {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0%);
+  }
+}
+
+.animate-marquee-ltr {
+  animation: marqueeLtr 6s linear infinite;
 }
 
 .title-text-outline {

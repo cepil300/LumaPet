@@ -1,0 +1,259 @@
+{
+  "entities": {
+    "SaveInventory": {
+      "title": "SaveInventory",
+      "description": "Consumable food and bath item counts owned by the player",
+      "type": "object",
+      "properties": {
+        "main_food": { "type": "number" },
+        "special_food": { "type": "number" },
+        "shampoo_foam": { "type": "number" },
+        "spa_bath": { "type": "number" }
+      },
+      "required": ["main_food", "special_food", "shampoo_foam", "spa_bath"]
+    },
+    "SaveCooldowns": {
+      "title": "SaveCooldowns",
+      "description": "Unix epoch millisecond timestamps when action cooldowns expire",
+      "type": "object",
+      "properties": {
+        "snack": { "type": "number" },
+        "basicSoap": { "type": "number" },
+        "miniGame": { "type": "number" },
+        "interactivePlay": { "type": "number" },
+        "petShort": { "type": "number" },
+        "petFull": { "type": "number" },
+        "sleepManual": { "type": "number" }
+      },
+      "required": [
+        "snack",
+        "basicSoap",
+        "miniGame",
+        "interactivePlay",
+        "petShort",
+        "petFull",
+        "sleepManual"
+      ]
+    },
+    "CloudSave": {
+      "title": "CloudSave",
+      "description": "Full LumaPet virtual cat progress saved for an authenticated Google user",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "breed": {
+          "type": "string",
+          "enum": ["oren", "mochi", "arang", "abu"],
+          "maxLength": 16
+        },
+        "personality": {
+          "type": "string",
+          "enum": ["playful", "lazy", "shy"],
+          "maxLength": 16
+        },
+        "hunger": { "type": "number" },
+        "happiness": { "type": "number" },
+        "cleanliness": { "type": "number" },
+        "energy": { "type": "number" },
+        "health": { "type": "number" },
+        "isSick": { "type": "boolean" },
+        "isRecovering": { "type": "boolean" },
+        "affectionXp": { "type": "number" },
+        "level": { "type": "number" },
+        "coins": { "type": "number" },
+        "day": { "type": "number" },
+        "gameHour": { "type": "number" },
+        "timeOfDay": { "type": "number" },
+        "weather": {
+          "type": "string",
+          "enum": ["cerah", "hujan", "malam"],
+          "maxLength": 16
+        },
+        "lifeStage": {
+          "type": "string",
+          "enum": ["baby", "child", "teen", "adult", "senior"],
+          "maxLength": 16
+        },
+        "stageElapsedSec": { "type": "number" },
+        "careMistakes": { "type": "number" },
+        "adultBranch": {
+          "type": "string",
+          "enum": ["prima", "mandiri", "sensitif"],
+          "maxLength": 16
+        },
+        "totalCatches": { "type": "number" },
+        "totalPets": { "type": "number" },
+        "activeBackground": {
+          "type": "string",
+          "enum": ["classic_home", "apartment", "tatami"],
+          "maxLength": 32
+        },
+        "unlockedBackgrounds": { "type": "array" },
+        "activeBed": {
+          "type": "string",
+          "enum": [
+            "kasur_kucing",
+            "kasur_semangka",
+            "keranjang_rajut",
+            "kasur_donat",
+            "tenda_kerajaan"
+          ],
+          "maxLength": 32
+        },
+        "unlockedBeds": { "type": "array" },
+        "activeBathtub": {
+          "type": "string",
+          "enum": ["bak_kucing", "bak_ikan", "bak_onsen", "bak_kerang", "bak_batu"],
+          "maxLength": 32
+        },
+        "unlockedBathtubs": { "type": "array" },
+        "activeToy": {
+          "type": "string",
+          "enum": ["yarn_ball", "laser_pointer", "feather_wand", "toy_mouse"],
+          "maxLength": 32
+        },
+        "unlockedToys": { "type": "array" },
+        "equippedHat": {
+          "type": "string",
+          "enum": ["none", "beret_merah", "topi_pesta", "mahkota_emas"],
+          "maxLength": 32
+        },
+        "equippedGlasses": {
+          "type": "string",
+          "enum": ["none", "kacamata_bulat", "kacamata_hitam", "kacamata_hati"],
+          "maxLength": 32
+        },
+        "equippedScarf": {
+          "type": "string",
+          "enum": ["default", "syal_polkadot", "syal_garis", "dasi_kupu"],
+          "maxLength": 32
+        },
+        "unlockedAccessories": { "type": "array" },
+        "inventory": { "$ref": "#/entities/SaveInventory" },
+        "sleepMode": {
+          "type": "string",
+          "enum": ["none", "power_nap", "full_rest", "auto_sleep"],
+          "maxLength": 24
+        },
+        "sleepRemainingSec": { "type": "number" },
+        "sleepDurationSec": { "type": "number" },
+        "sleepTargetEnergy": { "type": "number" },
+        "sleepTargetHappy": { "type": "number" },
+        "sleepTargetHunger": { "type": "number" },
+        "sleepTargetClean": { "type": "number" },
+        "sleepAppliedEnergy": { "type": "number" },
+        "sleepAppliedHappy": { "type": "number" },
+        "sleepAppliedHunger": { "type": "number" },
+        "sleepAppliedClean": { "type": "number" },
+        "zeroEnergyElapsedSec": { "type": "number" },
+        "cooldownsUntil": { "$ref": "#/entities/SaveCooldowns" },
+        "bedNx": { "type": "number" },
+        "bedNy": { "type": "number" },
+        "tubNx": { "type": "number" },
+        "tubNy": { "type": "number" },
+        "bowlNx": { "type": "number" },
+        "bowlNy": { "type": "number" },
+        "lastBathItemId": {
+          "type": "string",
+          "enum": ["basic_soap", "shampoo_foam", "spa_bath"],
+          "maxLength": 32
+        },
+        "lastSleepMode": {
+          "type": "string",
+          "enum": ["power_nap", "full_rest"],
+          "maxLength": 24
+        },
+        "lastFreeFeedAt": { "type": "number" },
+        "lowCleanlinessStrikes": { "type": "number" },
+        "wasUnder25Clean": { "type": "boolean" },
+        "lastSavedTime": { "type": "number" },
+        "savedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "breed",
+        "personality",
+        "hunger",
+        "happiness",
+        "cleanliness",
+        "energy",
+        "health",
+        "isSick",
+        "isRecovering",
+        "affectionXp",
+        "level",
+        "coins",
+        "day",
+        "gameHour",
+        "timeOfDay",
+        "weather",
+        "lifeStage",
+        "stageElapsedSec",
+        "careMistakes",
+        "adultBranch",
+        "totalCatches",
+        "totalPets",
+        "activeBackground",
+        "unlockedBackgrounds",
+        "activeBed",
+        "unlockedBeds",
+        "activeBathtub",
+        "unlockedBathtubs",
+        "activeToy",
+        "unlockedToys",
+        "equippedHat",
+        "equippedGlasses",
+        "equippedScarf",
+        "unlockedAccessories",
+        "inventory",
+        "sleepMode",
+        "sleepRemainingSec",
+        "sleepDurationSec",
+        "sleepTargetEnergy",
+        "sleepTargetHappy",
+        "sleepTargetHunger",
+        "sleepTargetClean",
+        "sleepAppliedEnergy",
+        "sleepAppliedHappy",
+        "sleepAppliedHunger",
+        "sleepAppliedClean",
+        "zeroEnergyElapsedSec",
+        "cooldownsUntil",
+        "bedNx",
+        "bedNy",
+        "tubNx",
+        "tubNy",
+        "bowlNx",
+        "bowlNy",
+        "lastBathItemId",
+        "lastSleepMode",
+        "lastFreeFeedAt",
+        "lowCleanlinessStrikes",
+        "wasUnder25Clean",
+        "lastSavedTime",
+        "savedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/cloudSaves/{userId}": {
+      "schema": { "$ref": "#/entities/CloudSave" },
+      "description": "Stores each authenticated user's LumaPet cloud save document keyed by Firebase Auth UID"
+    }
+  }
+}

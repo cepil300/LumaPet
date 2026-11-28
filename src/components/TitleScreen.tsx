@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import type { User } from 'firebase/auth';
+import { ArrowLeft, Cloud, CloudOff, Loader2, LogOut, RefreshCw, X } from 'lucide-react';
 import {
   CAT_BREEDS,
   CatBreed,
@@ -20,6 +21,8 @@ import { CatEarsHeaderPlaque, CatPortraitMedallion } from './WoodPanelChrome';
 
 type TitleSubView = 'MENU' | 'NEW_ADOPT' | 'SETTINGS';
 
+export type CloudSyncStatus = 'idle' | 'loading' | 'syncing' | 'synced' | 'error';
+
 interface TitleScreenProps {
   selectedBreed: CatBreed;
   onSelectBreed: (breed: CatBreed) => void;
@@ -30,7 +33,36 @@ interface TitleScreenProps {
   onStartNew: (name: string, breed: CatBreed) => void;
   onContinueSave: () => void;
   onQuitApp: () => void;
+  authReady: boolean;
+  googleUser: User | null;
+  cloudSyncStatus: CloudSyncStatus;
+  cloudError: string | null;
+  onLinkGoogle: () => void;
+  onUnlinkGoogle: () => void;
+  onSyncFromCloud: () => void;
+  onDismissCloudError: () => void;
 }
+
+const GoogleLogoIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <path
+      fill="#EA4335"
+      d="M12 10.2v3.9h5.4c-.2 1.2-.9 2.3-2 3l3.2 2.5c1.9-1.7 3-4.3 3-7.4 0-.7-.1-1.4-.2-2H12Z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 .9-3.4.9-2.6 0-4.9-1.8-5.7-4.2H3v2.6C4.7 19.8 8.1 22 12 22Z"
+    />
+    <path
+      fill="#4A90E2"
+      d="M6.3 13.8c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8V7.6H3C2.4 8.9 2 10.4 2 12s.4 3.1 1 4.4l3.3-2.6Z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M12 6c1.5 0 2.8.5 3.9 1.5l2.9-2.9C17 2.9 14.7 2 12 2 8.1 2 4.7 4.2 3 7.6l3.3 2.6C7.1 7.8 9.4 6 12 6Z"
+    />
+  </svg>
+);
 
 interface TitleSpriteCatProps {
   sheet: string;
@@ -71,9 +103,18 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onStartNew,
   onContinueSave,
   onQuitApp,
+  authReady,
+  googleUser,
+  cloudSyncStatus,
+  cloudError,
+  onLinkGoogle,
+  onUnlinkGoogle,
+  onSyncFromCloud,
+  onDismissCloudError,
 }) => {
   const [subView, setSubView] = useState<TitleSubView>('MENU');
   const [quitConfirmOpen, setQuitConfirmOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [catName, setCatName] = useState(CAT_BREEDS[selectedBreed].defaultName);
   const [tick, setTick] = useState(0);
 
@@ -99,6 +140,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         }
         return;
       }
+      if (e.key === 'Escape' && accountMenuOpen) {
+        e.preventDefault();
+        setAccountMenuOpen(false);
+        return;
+      }
       if (e.key === 'Escape' && quitConfirmOpen) {
         e.preventDefault();
         setQuitConfirmOpen(false);
@@ -109,7 +155,12 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         setSubView('MENU');
         return;
       }
-      if ((e.key === 'Enter' || e.key === ' ') && subView === 'MENU' && !quitConfirmOpen) {
+      if (
+        (e.key === 'Enter' || e.key === ' ') &&
+        subView === 'MENU' &&
+        !quitConfirmOpen &&
+        !accountMenuOpen
+      ) {
         e.preventDefault();
         if (existingSave) {
           onContinueSave();
@@ -120,7 +171,16 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [subView, quitConfirmOpen, catName, selectedBreed, existingSave, onStartNew, onContinueSave]);
+  }, [
+    subView,
+    quitConfirmOpen,
+    accountMenuOpen,
+    catName,
+    selectedBreed,
+    existingSave,
+    onStartNew,
+    onContinueSave,
+  ]);
 
   const sleepCol = 2;
   const playCol = [0, 1, 2, 3, 4, 5][tick % 6];
@@ -196,23 +256,184 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         />
       </div>
 
+      {/* Top-Left: Google Account Cloud Save Button */}
+      {subView === 'MENU' && (
+        <div
+          data-ui-id="title-google-cloud-btn"
+          data-ui-label="Tautan Akun Google"
+          className="absolute top-3 left-3 sm:top-5 sm:left-5 mobile:top-2 mobile:left-2.5 z-20 flex flex-col items-start gap-2"
+        >
+          {googleUser ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAccountMenuOpen((prev) => !prev)}
+                className="min-h-[44px] mobile:min-h-[34px] px-3 sm:px-3.5 py-1.5 mobile:px-2 mobile:py-1 rounded-xl mobile:rounded-lg bg-[#FFF6E5]/95 border-[2.5px] mobile:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_3px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2 mobile:gap-1.5 cursor-pointer max-w-[230px] sm:max-w-[260px] mobile:max-w-[175px]"
+                aria-expanded={accountMenuOpen}
+                title="Kelola tautan akun Google & Cloud Save"
+              >
+                <span className="relative shrink-0 flex items-center justify-center w-6 h-6 mobile:w-5 mobile:h-5 rounded-full bg-white border border-[#6E3B1B]/30">
+                  <GoogleLogoIcon className="w-4 h-4 mobile:w-3 mobile:h-3" />
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 mobile:w-2 mobile:h-2 rounded-full border border-white ${
+                      cloudSyncStatus === 'error'
+                        ? 'bg-[#DC2626]'
+                        : cloudSyncStatus === 'loading' || cloudSyncStatus === 'syncing'
+                        ? 'bg-[#F59E0B]'
+                        : 'bg-[#16A34A]'
+                    }`}
+                  />
+                </span>
+                <span className="flex flex-col items-start text-left leading-tight min-w-0">
+                  <span className="font-display font-extrabold text-xs sm:text-[13px] mobile:text-[10.5px] text-[#5A2D12] truncate max-w-[140px] sm:max-w-[170px] mobile:max-w-[115px]">
+                    {googleUser.displayName || googleUser.email || 'Akun Google'}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[10px] mobile:text-[8.5px] font-bold text-[#2D6A4F]">
+                    {cloudSyncStatus === 'loading' || cloudSyncStatus === 'syncing' ? (
+                      <>
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        <span>Sinkron Cloud...</span>
+                      </>
+                    ) : cloudSyncStatus === 'error' ? (
+                      <>
+                        <CloudOff className="w-2.5 h-2.5 text-[#DC2626]" />
+                        <span className="text-[#DC2626]">Gagal Sinkron</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cloud className="w-2.5 h-2.5" />
+                        <span>Cloud Terhubung</span>
+                      </>
+                    )}
+                  </span>
+                </span>
+              </button>
+
+              {accountMenuOpen && (
+                <div className="mt-2 w-[268px] sm:w-[290px] wood-menu-panel rounded-2xl border-[3px] border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFBF2,0_6px_0_#5E2F12,0_14px_24px_rgba(0,0,0,0.35)] p-3.5 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-8 h-8 rounded-full bg-white border-2 border-[#6E3B1B]/40 flex items-center justify-center shrink-0">
+                        <GoogleLogoIcon className="w-4 h-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-display font-extrabold text-xs text-[#4E270F] truncate">
+                          {googleUser.displayName || 'Akun Google'}
+                        </p>
+                        <p className="text-[11px] font-semibold text-[#7A4928] truncate">
+                          {googleUser.email}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAccountMenuOpen(false)}
+                      className="p-1 rounded-lg text-[#7A4928] hover:bg-[#F5E4C8] cursor-pointer"
+                      aria-label="Tutup info akun"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="px-2.5 py-2 rounded-xl bg-[#ECFDF5] border border-[#2D6A4F]/35 text-[11px] font-bold text-[#166534]">
+                    {existingSave
+                      ? `Cloud Save siap: ${existingSave.name} (Hari ke-${existingSave.day})`
+                      : 'Terhubung · Progres baru akan otomatis tersimpan ke cloud'}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-1.5">
+                    <button
+                      type="button"
+                      disabled={cloudSyncStatus === 'loading' || cloudSyncStatus === 'syncing'}
+                      onClick={() => {
+                        onSyncFromCloud();
+                      }}
+                      className="w-full px-3 py-2 min-h-[38px] rounded-xl bg-[#FFFDF8] border-2 border-[#6E3B1B]/40 text-xs font-display font-extrabold text-[#5A2D12] hover:bg-[#FFF3D9] transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    >
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${
+                          cloudSyncStatus === 'loading' ? 'animate-spin' : ''
+                        }`}
+                      />
+                      <span>Muat Ulang dari Cloud</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        onUnlinkGoogle();
+                      }}
+                      className="w-full px-3 py-2 min-h-[38px] rounded-xl bg-[#FFFDF8] border-2 border-[#DC2626]/40 text-xs font-display font-extrabold text-[#B91C1C] hover:bg-[#FEF2F2] transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Putuskan Akun Google</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={!authReady || cloudSyncStatus === 'loading'}
+              onClick={onLinkGoogle}
+              className="min-h-[44px] mobile:min-h-[34px] px-3 sm:px-3.5 py-1.5 mobile:px-2 mobile:py-1 rounded-xl mobile:rounded-lg bg-[#FFF6E5]/95 border-[2.5px] mobile:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_3px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2 mobile:gap-1.5 cursor-pointer disabled:opacity-70"
+              title="Kaitkan akun Google untuk menyimpan dan memuat progres dari cloud"
+            >
+              <span className="w-6 h-6 mobile:w-5 mobile:h-5 rounded-full bg-white border border-[#6E3B1B]/30 flex items-center justify-center shrink-0">
+                {cloudSyncStatus === 'loading' ? (
+                  <Loader2 className="w-3.5 h-3.5 mobile:w-3 mobile:h-3 animate-spin text-[#5A2D12]" />
+                ) : (
+                  <GoogleLogoIcon className="w-4 h-4 mobile:w-3 mobile:h-3" />
+                )}
+              </span>
+              <span className="flex flex-col items-start text-left leading-tight">
+                <span className="font-display font-extrabold text-xs sm:text-[13px] mobile:text-[10.5px] text-[#5A2D12] whitespace-nowrap">
+                  {cloudSyncStatus === 'loading'
+                    ? 'Menghubungkan...'
+                    : 'Kaitkan Akun Google'}
+                </span>
+                <span className="hidden sm:inline mobile:hidden text-[10px] font-bold text-[#7A4928]">
+                  Cloud Save Otomatis
+                </span>
+              </span>
+            </button>
+          )}
+
+          {cloudError && (
+            <div className="max-w-[270px] px-3 py-2 rounded-xl bg-[#FEF2F2]/95 border-2 border-[#DC2626] shadow-md flex items-start justify-between gap-2 text-[11px] font-bold text-[#991B1B]">
+              <span>{cloudError}</span>
+              <button
+                type="button"
+                onClick={onDismissCloudError}
+                className="shrink-0 text-[#991B1B] hover:opacity-75 cursor-pointer"
+                aria-label="Tutup pesan"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top-Right: Square Sound Button (absolute so it doesn't consume vertical hero space on short screens) */}
       <div
         data-ui-id="title-sound-btn"
         data-ui-label="Tombol Suara"
-        className="absolute top-3 right-3 sm:top-5 sm:right-5 short:top-2 short:right-3 z-20 flex items-center gap-2"
+        className="absolute top-3 right-3 sm:top-5 sm:right-5 mobile:top-2 mobile:right-2.5 z-20 flex items-center gap-2"
       >
         <button
           type="button"
           onClick={() => onUpdateSettings({ muted: !settings.muted })}
-          className="relative min-w-[44px] min-h-[44px] flex items-center justify-center bg-transparent border-0 p-0 hover:scale-105 active:scale-95 transition-transform cursor-pointer"
+          className="relative min-w-[44px] min-h-[44px] mobile:min-w-[34px] mobile:min-h-[34px] flex items-center justify-center bg-transparent border-0 p-0 hover:scale-105 active:scale-95 transition-transform cursor-pointer"
           aria-label={settings.muted ? 'Nyalakan suara' : 'Matikan suara'}
           title={settings.muted ? 'Nyalakan suara' : 'Matikan suara'}
         >
           <img
             src="/assets/ui/btn_sound.png"
             alt="Suara"
-            className={`w-12 h-12 short:w-9 short:h-9 object-contain drop-shadow-[0_3px_0_rgba(78,39,15,0.35)] ${
+            className={`w-12 h-12 mobile:w-8 mobile:h-8 object-contain drop-shadow-[0_3px_0_rgba(78,39,15,0.35)] ${
               settings.muted ? 'opacity-75 grayscale-[30%]' : ''
             }`}
             draggable={false}
@@ -220,7 +441,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           {settings.muted && (
             <svg
               viewBox="0 0 48 48"
-              className="absolute inset-0 m-auto w-12 h-12 short:w-9 short:h-9 pointer-events-none"
+              className="absolute inset-0 m-auto w-12 h-12 mobile:w-8 mobile:h-8 pointer-events-none"
               aria-hidden="true"
             >
               <line
@@ -452,7 +673,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     existingSave ? 'text-[#FFFDF8] menu-text-outline' : 'text-[#7D6E59]'
                   }`}
                 >
-                  {existingSave
+                  {cloudSyncStatus === 'loading' && !existingSave
+                    ? 'Memuat dari Cloud...'
+                    : existingSave
                     ? `${existingSave.name} · ${LIFE_STAGES[existingSave.lifeStage ?? 'baby'].shortLabel} · Hari ${existingSave.day}`
                     : 'Belum ada simpanan'}
                 </span>

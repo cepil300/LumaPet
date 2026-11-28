@@ -194,14 +194,10 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                     const canAfford = hud.coins >= item.price;
                     const statLines = item.description.split(' · ');
                     const isHungerFull = hud.hunger >= 100;
-                    const isHappyFull = hud.happiness >= 100;
                     const snackCd = item.isFree ? hud.cooldownsSec.snack : 0;
-                    const freeFoodBlocked = isHappyFull || snackCd > 0;
-                    const freeFoodLabel = isHappyFull
-                      ? 'Bahagia 100'
-                      : snackCd > 0
-                      ? `CD ${formatCooldownMMSS(snackCd)}`
-                      : 'Beri Gratis';
+                    const freeFoodBlocked = snackCd > 0;
+                    const freeFoodLabel =
+                      snackCd > 0 ? `CD ${formatCooldownMMSS(snackCd)}` : 'Beri Gratis';
 
                     return (
                       <div

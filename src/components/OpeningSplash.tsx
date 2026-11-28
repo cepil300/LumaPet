@@ -53,6 +53,8 @@ export const OpeningSplash: React.FC<OpeningSplashProps> = ({ onFinish }) => {
   return (
     <div
       onClick={triggerExit}
+      onTouchEnd={triggerExit}
+      onPointerUp={triggerExit}
       aria-label="Pembukaan LumaPet"
       className={`fixed inset-0 z-[100] bg-[#FFFFFF] flex items-center justify-center transition-opacity duration-700 ease-in-out select-none ${
         phase === 'exit'

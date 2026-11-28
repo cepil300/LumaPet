@@ -31,6 +31,7 @@ interface PauseAndEndModalProps {
   settings: GameSettings;
   autoSaveStatus: AutoSaveStatus;
   lastSavedAt: number | null;
+  cloudLinked?: boolean;
   onResume: () => void;
   onUpdateSettings: (next: Partial<GameSettings>) => void;
   onRestartSameCat: () => void;
@@ -43,6 +44,7 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
   settings,
   autoSaveStatus,
   lastSavedAt,
+  cloudLinked = false,
   onResume,
   onUpdateSettings,
   onRestartSameCat,
@@ -156,7 +158,11 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                         )}
                         <span>
                           {autoSaveStatus === 'saving'
-                            ? 'Menyimpan progres otomatis...'
+                            ? cloudLinked
+                              ? 'Menyimpan ke Cloud...'
+                              : 'Menyimpan progres otomatis...'
+                            : cloudLinked
+                            ? 'Cloud Save Aktif · Tersimpan otomatis'
                             : 'Auto-Save Aktif · Tersimpan otomatis'}
                         </span>
                       </span>

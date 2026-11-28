@@ -31,6 +31,12 @@ export const TUB_FOOTPRINT: ItemFootprint = {
   padFront: 0.018,
 };
 
+export const BOWL_FOOTPRINT: ItemFootprint = {
+  halfW: 0.028,
+  padBack: 0.014,
+  padFront: 0.01,
+};
+
 const DEFAULT_ROOM_BOUNDS: RoomAreaBounds = {
   minX: 0.03,
   maxX: 0.97,

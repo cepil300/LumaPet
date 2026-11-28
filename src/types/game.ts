@@ -10,6 +10,7 @@ export type CatBehavior =
   | 'EATING'
   | 'PLAYING'
   | 'SLEEPING'
+  | 'DOZING'
   | 'PURRING'
   | 'GROOMING'
   | 'STRETCHING'
@@ -86,7 +87,7 @@ export const FOOD_ITEMS: FoodItemOption[] = [
     name: 'Camilan Ringan / Snack',
     shortName: 'Camilan Ringan',
     description: '+15 Kenyang · +10 Bahagia',
-    note: 'Gratis (cooldown 2 mnt); ditolak jika Bahagia sudah 100.',
+    note: 'Gratis (cooldown 2 mnt); tetap bisa diberikan walau Bahagia 100.',
     isFree: true,
     price: 0,
     cooldownSec: 120,
@@ -196,8 +197,8 @@ export const SLEEP_OPTIONS: SleepOption[] = [
     name: 'Tidur Singkat (Power Nap)',
     shortName: 'Power Nap',
     durationSec: 180, // 3 menit nyata
-    durationLabel: '3 mnt · CD 3 mnt',
-    cooldownAfterWakeSec: 180, // 3 menit setelah bangun
+    durationLabel: '3 mnt',
+    cooldownAfterWakeSec: 0,
     energyDelta: 40,
     happinessDelta: 5,
     hungerDelta: -5,
@@ -209,8 +210,8 @@ export const SLEEP_OPTIONS: SleepOption[] = [
     name: 'Tidur Pulih Penuh',
     shortName: 'Tidur Penuh',
     durationSec: 600, // 10 menit nyata
-    durationLabel: '10 mnt · CD 5 mnt',
-    cooldownAfterWakeSec: 300, // 5 menit setelah bangun
+    durationLabel: '10 mnt',
+    cooldownAfterWakeSec: 0,
     energyDelta: 100,
     happinessDelta: 10,
     hungerDelta: -12,
@@ -959,6 +960,10 @@ export interface SaveData {
   bedNy?: number;
   tubNx?: number;
   tubNy?: number;
+  bowlNx?: number;
+  bowlNy?: number;
+  lastBathItemId?: BathItemId;
+  lastSleepMode?: ManualSleepMode;
   lastFreeFeedAt?: number;
   lowCleanlinessStrikes?: number;
   wasUnder25Clean?: boolean;

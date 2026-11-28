@@ -67,6 +67,7 @@ import {
   HEALTH_RECOVERY_PER_REAL_SEC,
   INITIAL_GAME_HOUR,
   isDuskHour,
+  isLateNightDrowsyHour,
   resetLowHungerNotificationAfterFeed,
   scheduleLowHungerNotification,
   sendLowHungerNotification,
@@ -91,6 +92,7 @@ import {
   getCatBedSleepAnchor,
   getCatStageScale,
   Particle,
+  pickRandomSleepPoseCol,
   RoomTransform,
   roomToScreen,
   screenToRoom,
@@ -98,6 +100,7 @@ import {
 } from './catRenderer';
 import {
   BED_FOOTPRINT,
+  BOWL_FOOTPRINT,
   computeScreenRoomBounds,
   constrainItemPlacement,
   FloorObstacle,
@@ -155,7 +158,7 @@ interface CatStageCanvasProps {
 
 const DEFAULT_BED_POS = { nx: 0.265, ny: 0.805 };
 const DEFAULT_TUB_POS = { nx: 0.745, ny: 0.815 };
-const BOWL_POS = { nx: 0.43, ny: 0.748 };
+const DEFAULT_BOWL_POS = { nx: 0.43, ny: 0.748 };
 const FLOOR_BOUNDS = { minX: 0.15, maxX: 0.84, minY: 0.68, maxY: 0.89 };
 const CAT_FOOTPRINT: ItemFootprint = { halfW: 0.034, padBack: 0.02, padFront: 0.015 };
 const BATH_ANIM_DURATION_SEC = 10.0;
@@ -260,6 +263,11 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
+function getCatDragCursorGapPx(viewH: number, isTouch: boolean): number {
+  const base = clamp(viewH * 0.16, 78, 102);
+  return isTouch ? clamp(Math.max(base + 12, 92), 92, 118) : base;
+}
+
 function formatCooldownMMSS(sec: number): string {
   const s = Math.max(0, Math.ceil(sec));
   const m = Math.floor(s / 60);
@@ -332,7 +340,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       groomTimer: 0,
       stretchTimer: 0,
       rollTimer: 0,
+      dozeTimer: 0,
       zzzTimer: 0,
+      sleepSpriteCol: 2,
       petCoinCooldown: 0,
       petActionCooldown: 0,
       petRubAccum: 0,
@@ -402,6 +412,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       sleepAppliedHunger: 0,
       sleepAppliedClean: 0,
       lastFreeBathTime: 0,
+      lastBathItemId: 'basic_soap' as BathItemId,
+      lastSleepMode: 'power_nap' as ManualSleepMode,
       cooldownsUntil: {
         snack: 0,
         basicSoap: 0,
@@ -412,7 +424,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         sleepManual: 0,
       },
 
-      // Room, Bed, Bathtub, Toy & Accessory customization
+      // Room, Bed, Bathtub, Bowl, Toy & Accessory customization
       activeBackground: 'classic_home' as RoomBackgroundId,
       unlockedBackgrounds: ['classic_home'] as RoomBackgroundId[],
       activeBed: 'kasur_kucing' as CatBedId,
@@ -429,8 +441,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       bedNy: DEFAULT_BED_POS.ny,
       tubNx: DEFAULT_TUB_POS.nx,
       tubNy: DEFAULT_TUB_POS.ny,
+      bowlNx: DEFAULT_BOWL_POS.nx,
+      bowlNy: DEFAULT_BOWL_POS.ny,
 
-      // Bed & Bathtub drag state
+      // Bed, Bathtub & Food Bowl drag state
       bedDragCandidate: false,
       isDraggingBed: false,
       bedDragStartX: 0,
@@ -443,10 +457,17 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       tubDragStartY: 0,
       tubDragOffsetNx: 0,
       tubDragOffsetNy: 0,
+      bowlDragCandidate: false,
+      isDraggingBowl: false,
+      bowlDragStartX: 0,
+      bowlDragStartY: 0,
+      bowlDragOffsetNx: 0,
+      bowlDragOffsetNy: 0,
 
       // Cat scruff drag-and-drop & swing state
       catDragCandidate: false,
       catDragZone: 'neck' as 'neck' | 'body',
+      catDragIsTouch: false,
       isDraggingCat: false,
       isDroppingFromDrag: false,
       catDragStartX: 0,
@@ -508,13 +529,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         appliedCleanCost: 0,
       },
 
-      // Pointer tracking
+      // Pointer tracking & double-tap detection
       pointerDown: false,
       pointerInside: false,
       pointerX: 0,
       pointerY: 0,
       lastPointerX: 0,
       lastPointerY: 0,
+      lastFloorTapAt: 0,
+      lastFloorTapX: 0,
+      lastFloorTapY: 0,
       lastRoomTransform: computeRoomTransform(1280, 720),
       particles: Array.from({ length: PARTICLE_POOL_SIZE }, (): Particle => ({
         active: false,
@@ -669,7 +693,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const { gameHours } = computeCalendarDayAndHour(s.lifeStage, s.stageElapsedSec);
       const dayPhase = getDayPhaseFromHour(s.gameHour);
       const isDusk = isDuskHour(s.gameHour);
-      const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
+      const isLateNight = isLateNightDrowsyHour(s.gameHour);
+      const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather, s.gameHour);
 
       const cooldownsSec = {
         snack: Math.max(0, Math.ceil((s.cooldownsUntil.snack - now) / 1000)),
@@ -678,11 +703,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         interactivePlay: Math.max(0, Math.ceil((s.cooldownsUntil.interactivePlay - now) / 1000)),
         petShort: Math.max(0, Math.ceil((s.cooldownsUntil.petShort - now) / 1000)),
         petFull: Math.max(0, Math.ceil((s.cooldownsUntil.petFull - now) / 1000)),
-        sleepManual: Math.max(0, Math.ceil((s.cooldownsUntil.sleepManual - now) / 1000)),
+        sleepManual: 0,
       };
 
       let moodLabel = 'Tenang & Nyaman';
-      if (isRecovering && s.isSick) moodLabel = 'Pemulihan (Masih Sakit)';
+      if (isRecovering && s.isSick && s.behavior === 'SLEEPING') moodLabel = 'Pemulihan 2x di Kasur';
+      else if (isRecovering && s.isSick) moodLabel = 'Pemulihan (Masih Sakit)';
       else if (isRecovering) moodLabel = 'Hampir Pulih Total';
       else if (s.isSick) moodLabel = 'Sedang Sakit';
       else if (s.isDraggingCat) moodLabel = 'Sedang Digendong';
@@ -694,7 +720,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             : s.sleepMode === 'power_nap'
             ? 'Power Nap'
             : 'Tidur Nyenyak';
-      } else if (s.behavior === 'EATING') moodLabel = 'Lahap Makan';
+      } else if (s.behavior === 'DOZING') moodLabel = 'Santai di Lantai';
+      else if (s.behavior === 'EATING') moodLabel = 'Lahap Makan';
       else if (s.behavior === 'PLAYING' && s.toy.active) {
         moodLabel = `Main ${getToyOption(s.activeToy).name}`;
       } else if (s.behavior === 'ROLLING') moodLabel = 'Berguling Lucu';
@@ -714,7 +741,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (s.isSick && isRecovering) {
         warningText = `${s.name} sedang masa pemulihan (${Math.round(
           s.health
-        )}%) — efek sakit masih terasa hingga kesehatan mencapai 90%.`;
+        )}%) — efek sakit masih terasa hingga kesehatan mencapai 90%${
+          s.behavior === 'SLEEPING' ? ' · Pemulihan 2x lebih cepat di kasur!' : '.'
+        }`;
       } else if (s.isSick && !isRecovering) {
         if (s.sickReason === 'overwork') {
           warningText = `Kelelahan / Overwork! ${s.name} jatuh sakit karena Energi 0 terlalu lama—segera beri obat sebelum kesehatan habis.`;
@@ -739,6 +768,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         warningText = `${s.name} sangat ngantuk (${Math.round(
           s.energy
         )}% Energi)! Mainan Interaktif ditolak—segera tidurkan.`;
+      } else if (isLateNight && s.behavior !== 'SLEEPING') {
+        warningText = `${s.name} mengantuk berat (01:00–06:00)! Menolak berlari & aktivitas menguras 5x energi. Tidurkan untuk pulih 3x lebih cepat.`;
       } else if (s.hunger < 40 && s.bowlAmount <= 0.02) {
         warningText = `${s.name} mulai rewel minta makan (<40%)! Waktunya beri makan.`;
       } else if (s.cleanliness < 15) {
@@ -826,6 +857,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return computeScreenRoomBounds(s.lastRoomTransform, vw, vh);
     };
 
+    const getBowlEatPos = (bowlNx: number, bowlNy: number) => {
+      const eatLeft = bowlNx > 0.76;
+      return {
+        nx: clamp(eatLeft ? bowlNx - 0.06 : bowlNx + 0.06, FLOOR_BOUNDS.minX, FLOOR_BOUNDS.maxX),
+        ny: clamp(bowlNy, FLOOR_BOUNDS.minY, FLOOR_BOUNDS.maxY),
+        facing: (eatLeft ? 1 : -1) as 1 | -1,
+      };
+    };
+
     const constrainBedPos = (
       nx: number,
       ny: number,
@@ -833,7 +873,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     ) => {
       const s = simRef.current;
       const obstacles: FloorObstacle[] = [
-        { kind: 'ellipse', cx: BOWL_POS.nx, cy: BOWL_POS.ny, rx: 0.036, ry: 0.018 },
+        { kind: 'ellipse', cx: s.bowlNx, cy: s.bowlNy, rx: 0.036, ry: 0.018 },
         { kind: 'ellipse', cx: s.tubNx, cy: s.tubNy, rx: 0.048, ry: 0.022 },
       ];
       return constrainItemPlacement(
@@ -854,7 +894,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     ) => {
       const s = simRef.current;
       const obstacles: FloorObstacle[] = [
-        { kind: 'ellipse', cx: BOWL_POS.nx, cy: BOWL_POS.ny, rx: 0.036, ry: 0.018 },
+        { kind: 'ellipse', cx: s.bowlNx, cy: s.bowlNy, rx: 0.036, ry: 0.018 },
         { kind: 'ellipse', cx: s.bedNx, cy: s.bedNy, rx: 0.048, ry: 0.022 },
       ];
       return constrainItemPlacement(
@@ -868,6 +908,27 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       );
     };
 
+    const constrainBowlPos = (
+      nx: number,
+      ny: number,
+      fallback?: { nx: number; ny: number }
+    ) => {
+      const s = simRef.current;
+      const obstacles: FloorObstacle[] = [
+        { kind: 'ellipse', cx: s.bedNx, cy: s.bedNy, rx: 0.048, ry: 0.022 },
+        { kind: 'ellipse', cx: s.tubNx, cy: s.tubNy, rx: 0.048, ry: 0.022 },
+      ];
+      return constrainItemPlacement(
+        s.activeBackground,
+        nx,
+        ny,
+        BOWL_FOOTPRINT,
+        getRoomPlacementBounds(),
+        obstacles,
+        fallback
+      );
+    };
+
     const constrainCatFloorPos = (
       nx: number,
       ny: number,
@@ -875,7 +936,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     ) => {
       const s = simRef.current;
       const obstacles: FloorObstacle[] = [
-        { kind: 'ellipse', cx: BOWL_POS.nx, cy: BOWL_POS.ny, rx: 0.036, ry: 0.018 },
+        { kind: 'ellipse', cx: s.bowlNx, cy: s.bowlNy, rx: 0.036, ry: 0.018 },
       ];
       return constrainItemPlacement(
         s.activeBackground,
@@ -896,6 +957,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const nextTub = constrainTubPos(s.tubNx, s.tubNy);
       s.tubNx = nextTub.nx;
       s.tubNy = nextTub.ny;
+      const nextBowl = constrainBowlPos(s.bowlNx, s.bowlNy);
+      s.bowlNx = nextBowl.nx;
+      s.bowlNy = nextBowl.ny;
 
       if (s.isBathing) {
         s.nx = s.tubNx;
@@ -909,6 +973,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       } else if (s.behavior === 'WALKING' && s.idleDecisionTimer < -50) {
         s.targetNx = s.bedNx;
         s.targetNy = s.bedNy;
+      } else if (s.behavior === 'EATING') {
+        const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+        s.nx = eatPos.nx;
+        s.ny = eatPos.ny;
+        s.facing = eatPos.facing;
       }
     };
 
@@ -922,18 +991,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
 
       if (item.isFree) {
-        // Camilan Ringan: cooldown 2 menit nyata; ditolak jika Bahagia sudah 100
-        if (Math.round(s.happiness) >= 100) {
-          soundEngine.playBounce();
-          spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: 'Bahagia sudah 100! Camilan ditolak',
-            color: '#FCA5A5',
-            size: 13.5,
-            vy: -26,
-            maxLife: 1.4,
-          });
-          return false;
-        }
+        // Camilan Ringan: cooldown 2 menit nyata; tetap bisa diberikan walau Bahagia 100
         if (s.cooldownsUntil.snack > now) {
           const rem = Math.ceil((s.cooldownsUntil.snack - now) / 1000);
           soundEngine.playBounce();
@@ -977,7 +1035,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
       if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
         // Jangan bangunkan paksa saat memberi makan; makanan menunggu di mangkuk
-        const bowlScr = roomToScreen(BOWL_POS.nx, BOWL_POS.ny, s.lastRoomTransform);
+        const bowlScr = roomToScreen(s.bowlNx, s.bowlNy, s.lastRoomTransform);
         spawnParticle('sparkle', bowlScr.x, bowlScr.y - 18, {
           color: '#F59E0B',
           size: 8,
@@ -994,13 +1052,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         return true;
       }
 
-      if (s.behavior === 'ROLLING' || s.behavior === 'PURRING') {
+      if (s.behavior === 'ROLLING' || s.behavior === 'PURRING' || s.behavior === 'DOZING') {
         s.behavior = 'WALKING';
         s.z = 0;
         s.vz = 0;
       }
-      s.targetNx = BOWL_POS.nx + 0.06;
-      s.targetNy = BOWL_POS.ny;
+      const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+      s.targetNx = eatPos.nx;
+      s.targetNy = eatPos.ny;
       soundEngine.playMeow(1.08);
 
       const stageRates = getStageDecayRatesPerSec(
@@ -1014,7 +1073,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         stageRates.hungerPerSec
       );
 
-      const bowlScr = roomToScreen(BOWL_POS.nx, BOWL_POS.ny, s.lastRoomTransform);
+      const bowlScr = roomToScreen(s.bowlNx, s.bowlNy, s.lastRoomTransform);
       spawnParticle('sparkle', bowlScr.x, bowlScr.y - 18, {
         color: '#F59E0B',
         size: 8,
@@ -1140,7 +1199,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       onHudUpdate(buildSnapshot());
     };
 
-    const useBathItemInternal = (bathId: BathItemId): boolean => {
+    const useBathItemInternal = (bathId: BathItemId, immediateAtTub = false): boolean => {
       const s = simRef.current;
       soundEngine.unlock();
       const item = BATH_ITEMS.find((b) => b.id === bathId);
@@ -1205,23 +1264,44 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.inventory = { ...s.inventory, [key]: s.inventory[key] - 1 };
       }
 
-      // Cancel active play/zoomies and walk to the bathtub
+      s.lastBathItemId = bathId;
+
+      // Cancel active play/zoomies
       s.toy.active = false;
       s.playSession.active = false;
       s.idleZoomies = false;
       onToySessionEndRef.current?.();
 
       s.pendingBathId = bathId;
-      s.walkingToBath = true;
       s.z = 0;
       s.vz = 0;
+      s.isDroppingFromDrag = false;
+      s.catSwingAngle = 0;
+      s.catSwingVel = 0;
+
+      if (bathId !== 'basic_soap') {
+        soundEngine.playChime();
+      }
+
+      if (immediateAtTub) {
+        soundEngine.playMeow(1.08);
+        enterBathtub();
+        const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.06, s.lastRoomTransform);
+        spawnParticle('text', tubScr.x, tubScr.y - 40, {
+          label: `Langsung mandi (${item.shortName})!`,
+          color: '#BAE6FD',
+          size: 13,
+          vy: -26,
+          maxLife: 1.35,
+        });
+        return true;
+      }
+
+      s.walkingToBath = true;
       s.behavior = 'WALKING';
       s.targetNx = s.tubNx;
       s.targetNy = s.tubNy;
       soundEngine.playMeow(1.08);
-      if (bathId !== 'basic_soap') {
-        soundEngine.playChime();
-      }
 
       spawnParticle('text', catPos.x, catPos.y - 36, {
         label: `Menuju bak mandi (${item.shortName})...`,
@@ -1261,18 +1341,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           size: 13.5,
           vy: -24,
           maxLife: 1.2,
-        });
-        return false;
-      }
-
-      if (Math.round(s.happiness) >= 100) {
-        soundEngine.playBounce();
-        spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Bahagia sudah penuh (100)!',
-          color: '#FCA5A5',
-          size: 13.5,
-          vy: -26,
-          maxLife: 1.4,
         });
         return false;
       }
@@ -1358,7 +1426,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return true;
     };
 
-    const startSleepInternal = (mode: ManualSleepMode): boolean => {
+    const startSleepInternal = (mode: ManualSleepMode, immediateOnBed = false): boolean => {
       const s = simRef.current;
       soundEngine.unlock();
       const now = Date.now();
@@ -1381,19 +1449,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         spawnParticle('text', catPos.x, catPos.y - 36, {
           label: 'Energi sudah penuh (100)!',
           color: '#FCA5A5',
-          size: 13.5,
-          vy: -26,
-          maxLife: 1.4,
-        });
-        return false;
-      }
-
-      if (s.cooldownsUntil.sleepManual > now) {
-        const rem = Math.ceil((s.cooldownsUntil.sleepManual - now) / 1000);
-        soundEngine.playBounce();
-        spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: `Cooldown tidur manual (${formatCooldownMMSS(rem)})`,
-          color: '#FDE68A',
           size: 13.5,
           vy: -26,
           maxLife: 1.4,
@@ -1437,6 +1492,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const opt = SLEEP_OPTIONS.find((o) => o.id === mode) ?? SLEEP_OPTIONS[0];
       const isBriefDayNap = dayPhase !== 'malam' && s.energy > 70 && mode === 'power_nap';
 
+      s.lastSleepMode = opt.id;
       s.toy.active = false;
       s.playSession.active = false;
       s.idleZoomies = false;
@@ -1463,19 +1519,37 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       s.sleepAppliedHappy = 0;
       s.sleepAppliedHunger = 0;
       s.sleepAppliedClean = 0;
+      s.sleepSpriteCol = pickRandomSleepPoseCol(s.lifeStage, s.sleepSpriteCol);
 
-      s.behavior = 'WALKING';
-      s.targetNx = s.bedNx;
-      s.targetNy = s.bedNy;
-      s.idleDecisionTimer = -99;
+      if (immediateOnBed) {
+        s.nx = s.bedNx;
+        s.ny = s.bedNy;
+        s.z = 0;
+        s.vz = 0;
+        s.isDroppingFromDrag = false;
+        s.catSwingAngle = 0;
+        s.catSwingVel = 0;
+        s.behavior = 'SLEEPING';
+        s.facing = 1;
+        s.idleDecisionTimer = 3.0;
+      } else {
+        s.behavior = 'WALKING';
+        s.targetNx = s.bedNx;
+        s.targetNy = s.bedNy;
+        s.idleDecisionTimer = -99;
+      }
 
       const sleepBonusTags = [
         dayPhase === 'pagi' ? 'Pagi +10%' : dayPhase === 'malam' ? 'Malam +20%' : '',
         s.weather === 'hujan' ? 'Hujan +10%' : '',
+        isLateNightDrowsyHour(s.gameHour) ? 'Pulih 3x' : '',
       ].filter(Boolean);
       const sleepBonusTag = sleepBonusTags.length > 0 ? ` · Bonus ${sleepBonusTags.join(' & ')}` : '';
       soundEngine.playSleep();
-      spawnParticle('text', catPos.x, catPos.y - 36, {
+      const noticePos = immediateOnBed
+        ? roomToScreen(s.bedNx, s.bedNy - 0.08, s.lastRoomTransform)
+        : catPos;
+      spawnParticle('text', noticePos.x, noticePos.y - 36, {
         label: isBriefDayNap
           ? `Masih cukup segar — tidur sebentar (1,5 mnt · +${Math.round(s.sleepTargetEnergy)} Energi)`
           : `${opt.shortName} (${Math.round(opt.durationSec / 60)} mnt${sleepBonusTag}): ${opt.description}`,
@@ -1508,11 +1582,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         });
       }
 
-      if (prevMode === 'power_nap' || prevMode === 'full_rest') {
-        const opt = SLEEP_OPTIONS.find((o) => o.id === prevMode);
-        const cdSec = opt?.cooldownAfterWakeSec ?? (prevMode === 'power_nap' ? 180 : 300);
-        s.cooldownsUntil.sleepManual = Date.now() + cdSec * 1000;
-      } else if (prevMode === 'auto_sleep' && s.energy <= 0.5) {
+      s.cooldownsUntil.sleepManual = 0;
+      if (prevMode === 'auto_sleep' && s.energy <= 0.5) {
         s.autoSleepRetryTimer = 15;
       }
 
@@ -1660,8 +1731,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const { mult, reason } = getPlayEffectiveness();
         const dayPhase = getDayPhaseFromHour(s.gameHour);
         const phaseMult = getDayPhaseMultipliers(dayPhase);
-        const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
-        const isDrowsyPenalty = drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy';
+        const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather, s.gameHour);
+        const isLateNight = isLateNightDrowsyHour(s.gameHour);
+        const isDrowsyPenalty = !isLateNight && (drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy');
         const actEnergyMult = isDrowsyPenalty ? 1.15 : 1.0;
         const isHappyAlreadyFull = Math.round(s.happiness) >= 100;
         const targetHappy = isHappyAlreadyFull
@@ -1671,6 +1743,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               Math.round(ACTION_DELTAS.playInteractiveFull.happiness * mult * phaseMult.playHappyMult)
             );
         const targetCost = Math.abs(ACTION_DELTAS.playInteractiveFull.energy) * actEnergyMult;
+        const displayExpectedCost = isLateNight ? targetCost * 5 : targetCost;
         s.playSession = {
           active: true,
           targetHappiness: targetHappy,
@@ -1682,7 +1755,17 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           targetCleanCost: Math.abs(ACTION_DELTAS.playInteractiveFull.cleanliness),
           appliedCleanCost: 0,
         };
-        if (isHappyAlreadyFull) {
+        if (isLateNight) {
+          spawnParticle('text', catPos.x, catPos.y - 36, {
+            label: `Mengantuk berat (01:00–06:00)! Energi main 5x (-${displayExpectedCost.toFixed(1)} Energi${
+              isHappyAlreadyFull ? ' · +0 Bahagia' : ''
+            })`,
+            color: '#FCA5A5',
+            size: 13,
+            vy: -24,
+            maxLife: 1.75,
+          });
+        } else if (isHappyAlreadyFull) {
           spawnParticle('text', catPos.x, catPos.y - 36, {
             label: isDrowsyPenalty
               ? `Mulai Ngantuk · Energi main 1,15x (-${targetCost.toFixed(1)} Energi · +0 Bahagia)`
@@ -1934,7 +2017,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const dayPhase = getDayPhaseFromHour(s.gameHour);
         const phaseMult = getDayPhaseMultipliers(dayPhase);
         const weatherMult = getWeatherMultipliers(s.weather);
-        const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather);
+        const drowsyStage = getDrowsyStage(s.energy, dayPhase, s.weather, s.gameHour);
+        const isLateNight = isLateNightDrowsyHour(s.gameHour);
         const isHappyFull = Math.round(s.happiness) >= 100;
         const finalHappy = isHappyFull
           ? 0
@@ -1942,10 +2026,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               5,
               Math.round((baseHappy + weatherMult.outdoorPlayHappyBonus) * mult * phaseMult.playHappyMult)
             );
-        const isDrowsyPenalty = drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy';
+        const isDrowsyPenalty = !isLateNight && (drowsyStage === 'drowsy_light' || drowsyStage === 'drowsy_heavy');
+        const lateNightEnergyMult = isLateNight ? 5 : 1;
         const energyCost =
           Math.round(
-            Math.abs(ACTION_DELTAS.playMiniGame.energy) * (isDrowsyPenalty ? 1.15 : 1) * 10
+            Math.abs(ACTION_DELTAS.playMiniGame.energy) *
+              (isDrowsyPenalty ? 1.15 : 1) *
+              lateNightEnergyMult *
+              10
           ) / 10;
         const hungerCost = Math.abs(ACTION_DELTAS.playMiniGame.hunger);
         const cleanCost =
@@ -2008,11 +2096,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.mealEnergyRemaining = item.energyDelta;
         s.pendingTreatBonus = { happiness: 0, energy: 0 };
         s.idleZoomies = false;
-        if (s.behavior === 'SLEEPING' || s.behavior === 'ROLLING') {
+        if (s.behavior === 'SLEEPING' || s.behavior === 'ROLLING' || s.behavior === 'DOZING') {
           s.behavior = 'WALKING';
         }
-        s.targetNx = BOWL_POS.nx + 0.06;
-        s.targetNy = BOWL_POS.ny;
+        const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+        s.targetNx = eatPos.nx;
+        s.targetNy = eatPos.ny;
         soundEngine.playMeow(1.15);
         soundEngine.playChime();
         const stageRates = getStageDecayRatesPerSec(
@@ -2283,6 +2372,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           bedNy: s.bedNy,
           tubNx: s.tubNx,
           tubNy: s.tubNy,
+          bowlNx: s.bowlNx,
+          bowlNy: s.bowlNy,
+          lastBathItemId: s.lastBathItemId,
+          lastSleepMode: s.lastSleepMode,
           lastFreeFeedAt: s.lastFreeFeedTime > 0 ? s.lastFreeFeedTime : undefined,
           lowCleanlinessStrikes: s.lowCleanlinessStrikes,
           wasUnder25Clean: s.wasUnder25Clean,
@@ -2370,6 +2463,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.sleepAppliedHunger = 0;
         s.sleepAppliedClean = 0;
         s.lastFreeBathTime = 0;
+        s.lastBathItemId = 'basic_soap';
+        s.lastSleepMode = 'power_nap';
+        s.sleepSpriteCol = 2;
+        s.dozeTimer = 0;
         s.cooldownsUntil = {
           snack: 0,
           basicSoap: 0,
@@ -2395,10 +2492,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.bedNy = DEFAULT_BED_POS.ny;
         s.tubNx = DEFAULT_TUB_POS.nx;
         s.tubNy = DEFAULT_TUB_POS.ny;
+        s.bowlNx = DEFAULT_BOWL_POS.nx;
+        s.bowlNy = DEFAULT_BOWL_POS.ny;
         s.bedDragCandidate = false;
         s.isDraggingBed = false;
         s.tubDragCandidate = false;
         s.isDraggingTub = false;
+        s.bowlDragCandidate = false;
+        s.isDraggingBowl = false;
         s.catDragCandidate = false;
         s.isDraggingCat = false;
         s.isDroppingFromDrag = false;
@@ -2491,7 +2592,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           sleepAppliedHappy: save.sleepAppliedHappy ?? 0,
           sleepAppliedHunger: save.sleepAppliedHunger ?? 0,
           sleepAppliedClean: save.sleepAppliedClean ?? 0,
-          sleepCooldownUntil: save.cooldownsUntil?.sleepManual ?? 0,
+          sleepCooldownUntil: 0,
           gameHour: initialGameHour,
           weather: loadedWeather,
           lastSavedTime: save.lastSavedTime ?? save.savedAt,
@@ -2525,18 +2626,19 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           interactivePlay: Math.max(0, save.cooldownsUntil?.interactivePlay ?? 0),
           petShort: Math.max(0, save.cooldownsUntil?.petShort ?? 0),
           petFull: Math.max(0, save.cooldownsUntil?.petFull ?? 0),
-          sleepManual: Math.max(
-            0,
-            offline.sleepCooldownUntil,
-            save.cooldownsUntil?.sleepManual ?? 0
-          ),
+          sleepManual: 0,
         };
         s.zeroEnergyElapsedSec =
           s.energy <= 0.5 && typeof save.zeroEnergyElapsedSec === 'number'
             ? Math.max(0, save.zeroEnergyElapsedSec)
             : 0;
         s.autoSleepRetryTimer = 0;
-        s.lastDrowsyNoticeTier = getDrowsyStage(s.energy, offline.dayPhase, loadedWeather);
+        s.lastDrowsyNoticeTier = getDrowsyStage(
+          s.energy,
+          offline.dayPhase,
+          loadedWeather,
+          offline.gameHour
+        );
 
         s.lowCleanlinessStrikes =
           typeof save.lowCleanlinessStrikes === 'number' &&
@@ -2649,11 +2751,23 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.bedNy = save.bedNy ?? DEFAULT_BED_POS.ny;
         s.tubNx = save.tubNx ?? DEFAULT_TUB_POS.nx;
         s.tubNy = save.tubNy ?? DEFAULT_TUB_POS.ny;
+        s.bowlNx = save.bowlNx ?? DEFAULT_BOWL_POS.nx;
+        s.bowlNy = save.bowlNy ?? DEFAULT_BOWL_POS.ny;
+        s.lastBathItemId =
+          save.lastBathItemId && BATH_ITEMS.some((b) => b.id === save.lastBathItemId)
+            ? save.lastBathItemId
+            : 'basic_soap';
+        s.lastSleepMode =
+          save.lastSleepMode === 'full_rest' || save.lastSleepMode === 'power_nap'
+            ? save.lastSleepMode
+            : 'power_nap';
         reconcileDraggablePositions();
         s.bedDragCandidate = false;
         s.isDraggingBed = false;
         s.tubDragCandidate = false;
         s.isDraggingTub = false;
+        s.bowlDragCandidate = false;
+        s.isDraggingBowl = false;
         s.catDragCandidate = false;
         s.isDraggingCat = false;
         s.isDroppingFromDrag = false;
@@ -2665,8 +2779,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.bathTimer = 0;
         s.bathMidSoundPlayed = false;
         s.activeBathItemId = null;
+        s.dozeTimer = 0;
         if (s.sleepMode !== 'none') {
           s.behavior = 'SLEEPING';
+          s.sleepSpriteCol = pickRandomSleepPoseCol(s.lifeStage);
           s.nx = s.bedNx;
           s.ny = s.bedNy;
           s.facing = 1;
@@ -2840,7 +2956,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.lastDrowsyNoticeTier = getDrowsyStage(
           s.energy,
           getDayPhaseFromHour(s.gameHour),
-          s.weather
+          s.weather,
+          s.gameHour
         );
         if (s.hunger >= 40) {
           const rates = getStageDecayRatesPerSec(
@@ -3193,6 +3310,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.isDraggingBed = false;
         s.tubDragCandidate = false;
         s.isDraggingTub = false;
+        s.bowlDragCandidate = false;
+        s.isDraggingBowl = false;
         if (s.isDraggingCat) {
           finishCatScruffDragRef.current?.();
         }
@@ -3246,17 +3365,21 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 if (s.idleDecisionTimer <= 0) {
                   s.idleDecisionTimer = 2.6 + Math.random() * 2.5;
                   const roll = Math.random();
-                  if (roll < 0.52) {
+                  if (roll < 0.48) {
                     s.idleZoomies = Math.random() < 0.35;
                     s.targetNx = 0.42 + Math.random() * 0.35;
                     s.targetNy = 0.72 + Math.random() * 0.14;
                     s.behavior = s.idleZoomies ? 'PLAYING' : 'WALKING';
-                  } else if (roll < 0.78) {
+                  } else if (roll < 0.72) {
                     s.behavior = 'GROOMING';
                     s.groomTimer = 2.0;
-                  } else {
+                  } else if (roll < 0.88) {
                     s.behavior = 'STRETCHING';
                     s.stretchTimer = 1.6;
+                  } else {
+                    s.behavior = 'DOZING';
+                    s.dozeTimer = 3.5 + Math.random() * 2.2;
+                    s.sleepSpriteCol = pickRandomSleepPoseCol(s.lifeStage, s.sleepSpriteCol);
                   }
                 }
               }
@@ -3482,8 +3605,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
 
               if (s.behavior === 'SLEEPING') {
+                const sleepRateMult = isLateNightDrowsyHour(s.gameHour) ? 3 : 1;
                 if (s.sleepMode !== 'none' && s.sleepDurationSec > 0) {
-                  const stepSec = Math.min(simDt, s.sleepRemainingSec);
+                  const stepSec = Math.min(simDt * sleepRateMult, s.sleepRemainingSec);
                   s.sleepRemainingSec = Math.max(0, s.sleepRemainingSec - stepSec);
                   const eStep = (s.sleepTargetEnergy / s.sleepDurationSec) * stepSec;
                   const hStep = (s.sleepTargetHappy / s.sleepDurationSec) * stepSec;
@@ -3517,7 +3641,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     100
                   );
                 } else {
-                  s.energy = clamp(s.energy + simDt * 1.4 * weatherMult.sleepEnergyMult, 0, 100);
+                  s.energy = clamp(
+                    s.energy + simDt * 1.4 * weatherMult.sleepEnergyMult * sleepRateMult,
+                    0,
+                    100
+                  );
                   s.hunger = clamp(
                     s.hunger -
                       simDt *
@@ -3600,12 +3728,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   const completedMode = s.sleepMode;
                   const doneEnergyGain = Math.round(s.sleepTargetEnergy);
                   const doneHappyGain = Math.round(s.sleepTargetHappy);
-                  if (completedMode === 'power_nap' || completedMode === 'full_rest') {
-                    const opt = SLEEP_OPTIONS.find((o) => o.id === completedMode);
-                    const cdSec =
-                      opt?.cooldownAfterWakeSec ?? (completedMode === 'power_nap' ? 180 : 300);
-                    s.cooldownsUntil.sleepManual = Date.now() + cdSec * 1000;
-                  }
+                  s.cooldownsUntil.sleepManual = 0;
 
                   s.sleepMode = 'none';
                   s.sleepRemainingSec = 0;
@@ -3649,6 +3772,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 const hungryEnergyMult = s.hunger <= 0 ? 1.7 : s.hunger < 20 ? 1.35 : 1.0;
                 const isColdIdle =
                   s.behavior === 'IDLE' ||
+                  s.behavior === 'DOZING' ||
                   s.behavior === 'GROOMING' ||
                   s.behavior === 'PURRING' ||
                   s.behavior === 'STRETCHING' ||
@@ -3671,10 +3795,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     0,
                     s.playSession.targetHappiness - s.playSession.appliedHappiness
                   );
-                  const energyRem = Math.max(
-                    0,
-                    s.playSession.targetEnergyCost - s.playSession.appliedEnergyCost
-                  );
                   const hungerRem = Math.max(
                     0,
                     s.playSession.targetHungerCost - s.playSession.appliedHungerCost
@@ -3684,14 +3804,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     s.playSession.targetCleanCost - s.playSession.appliedCleanCost
                   );
 
+                  const nightPlayEnergyMult = isLateNightDrowsyHour(s.gameHour) ? 5 : 1;
                   const hStep = Math.min(
                     happyRem,
                     (s.playSession.targetHappiness / PLAY_SESSION_SECONDS) * dt
                   );
-                  const eStep = Math.min(
-                    energyRem,
-                    (s.playSession.targetEnergyCost / PLAY_SESSION_SECONDS) * dt
-                  );
+                  const eStep =
+                    (s.playSession.targetEnergyCost / PLAY_SESSION_SECONDS) * dt * nightPlayEnergyMult;
                   const hunStep = Math.min(
                     hungerRem,
                     (s.playSession.targetHungerCost / PLAY_SESSION_SECONDS) * dt
@@ -3752,8 +3871,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   onToySessionEndRef.current?.();
                 }
 
-                // Notifikasi transisi level ngantuk (<=50 Malam, <=45 Hujan, <=40 Cerah Pagi/Siang)
-                const nextDrowsyTier = getDrowsyStage(s.energy, dayPhase, s.weather);
+                // Notifikasi transisi level ngantuk (<=50 Malam, <=45 Hujan, <=40 Cerah Pagi/Siang, atau 01:00–06:00)
+                const isLateNightNow = isLateNightDrowsyHour(s.gameHour);
+                const nextDrowsyTier = getDrowsyStage(s.energy, dayPhase, s.weather, s.gameHour);
                 if (nextDrowsyTier !== s.lastDrowsyNoticeTier) {
                   if (nextDrowsyTier === 'drowsy_light' && s.lastDrowsyNoticeTier === 'fresh') {
                     const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
@@ -3775,11 +3895,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   ) {
                     const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                     spawnParticle('text', catPos.x, catPos.y - 34, {
-                      label: 'Sangat ngantuk (1–20 Energi)! Segera tidurkan',
-                      color: '#FCA5A5',
+                      label: isLateNightNow
+                        ? 'Pukul 01:00–06:00: Mengantuk berat! Menolak berlari · Tidur pulih 3x lebih cepat'
+                        : 'Sangat ngantuk (1–20 Energi)! Segera tidurkan',
+                      color: isLateNightNow ? '#FDE68A' : '#FCA5A5',
                       size: 13.5,
                       vy: -24,
-                      maxLife: 1.8,
+                      maxLife: 1.9,
                     });
                   }
                   s.lastDrowsyNoticeTier = nextDrowsyTier;
@@ -3814,6 +3936,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.sleepAppliedHappy = 0;
                   s.sleepAppliedHunger = 0;
                   s.sleepAppliedClean = 0;
+                  s.sleepSpriteCol = pickRandomSleepPoseCol(s.lifeStage, s.sleepSpriteCol);
                   s.behavior = 'SLEEPING';
                   s.facing = 1;
                   soundEngine.playSleep();
@@ -3866,11 +3989,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.starveZeroTimer = 0;
               }
 
-              // Dampak ke Kesehatan & Pemulihan Obat (1% -> 100% dalam 12 jam waktu game; efek sakit hilang di 90%)
+              // Dampak ke Kesehatan & Pemulihan Obat (1% -> 100% dalam 12 jam waktu game; 2x lebih cepat saat berbaring di kasur; efek sakit hilang di 90%)
+              const onBedRecoveryMult = s.behavior === 'SLEEPING' ? 2 : 1;
               if (s.isRecovering) {
                 const prevHealth = s.health;
-                s.health = clamp(s.health + simDt * HEALTH_RECOVERY_PER_REAL_SEC, 0, 100);
-                s.happiness = clamp(s.happiness + simDt * 0.25, 0, 100);
+                s.health = clamp(
+                  s.health + simDt * HEALTH_RECOVERY_PER_REAL_SEC * onBedRecoveryMult,
+                  0,
+                  100
+                );
+                s.happiness = clamp(s.happiness + simDt * 0.25 * onBedRecoveryMult, 0, 100);
 
                 if (prevHealth < SICK_SYMPTOM_CLEAR_HEALTH && s.health >= SICK_SYMPTOM_CLEAR_HEALTH) {
                   s.isSick = false;
@@ -3971,7 +4099,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.happiness > 75 &&
                 s.health < 100
               ) {
-                s.health = clamp(s.health + simDt * 0.5, 0, 100);
+                s.health = clamp(s.health + simDt * 0.5 * onBedRecoveryMult, 0, 100);
               }
 
               // Pelacakan riwayat kebersihan rendah (< 25) & pemicu sakit
@@ -4068,7 +4196,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
 
               // Ambient mood-based particles around the cat (efek sakit tetap tampil hingga 90%)
-              if (s.behavior !== 'SLEEPING' && (s.isSick || !s.isRecovering)) {
+              if (
+                s.behavior !== 'SLEEPING' &&
+                s.behavior !== 'DOZING' &&
+                (s.isSick || !s.isRecovering)
+              ) {
                 s.moodParticleTimer -= dt;
                 if (s.moodParticleTimer <= 0) {
                   const pScale = Math.max(0.55, rt.scale * 0.85);
@@ -4079,7 +4211,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   const ambientDrowsy = getDrowsyStage(
                     s.energy,
                     getDayPhaseFromHour(s.gameHour),
-                    s.weather
+                    s.weather,
+                    s.gameHour
                   );
 
                   if (s.isSick) {
@@ -4270,14 +4403,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               if (s.toy.lifeTimer <= 0) {
                 s.toy.active = false;
                 if (s.playSession.active) {
+                  const isLateNightEnd = isLateNightDrowsyHour(s.gameHour);
                   const remH = Math.max(
                     0,
                     s.playSession.targetHappiness - s.playSession.appliedHappiness
                   );
-                  const remE = Math.max(
-                    0,
-                    s.playSession.targetEnergyCost - s.playSession.appliedEnergyCost
-                  );
+                  const remE = isLateNightEnd
+                    ? 0
+                    : Math.max(0, s.playSession.targetEnergyCost - s.playSession.appliedEnergyCost);
                   const remHun = Math.max(
                     0,
                     s.playSession.targetHungerCost - s.playSession.appliedHungerCost
@@ -4290,11 +4423,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.energy = clamp(s.energy - remE, 0, 100);
                   s.hunger = clamp(s.hunger - remHun, 0, 100);
                   s.cleanliness = clamp(s.cleanliness - remCln, 0, 100);
+                  const totalEnergyShown =
+                    Math.round((s.playSession.appliedEnergyCost + remE) * 10) / 10;
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 34, {
-                    label: `Main Selesai: +${s.playSession.targetHappiness} Bahagia · -${Math.round(
-                      s.playSession.targetEnergyCost
-                    )} Energi · -${s.playSession.targetHungerCost} Kenyang`,
+                    label: `Main Selesai: +${s.playSession.targetHappiness} Bahagia · -${totalEnergyShown} Energi · -${s.playSession.targetHungerCost} Kenyang`,
                     color: '#FBCFE8',
                     size: 13,
                     vy: -28,
@@ -4311,10 +4444,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             if (s.isDraggingCat) {
               s.catDragTime += dt;
               s.catDragOffsetX *= Math.exp(-26 * dt);
-              s.catDragOffsetY *= Math.exp(-26 * dt);
+              s.catDragOffsetY *= Math.exp(-16 * dt);
 
+              const dragCursorGapPx = getCatDragCursorGapPx(viewH, s.catDragIsTouch);
               const targetHeadX = s.catDragPtrX - s.catDragOffsetX;
-              const targetHeadY = s.catDragPtrY - s.catDragOffsetY;
+              const targetHeadY = Math.max(14, s.catDragPtrY + dragCursorGapPx - s.catDragOffsetY);
               const bounds = getRoomPlacementBounds();
               const rawPtrNx = (targetHeadX - rt.offsetX) / rt.drawW;
               const ptrNx = clamp(
@@ -4328,9 +4462,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
               const headLocalPx = CAT_DRAG_SCRUFF_LOCAL_Y * catDrawScale;
               const minHoverPx = 0.055 * rt.drawH;
+              const bottomFootMarginPx = Math.ceil(30 * catDrawScale) + 6;
               const maxDragFloorNy = Math.max(
                 bounds.maxY,
-                (viewH - 8 - rt.offsetY) / Math.max(1, rt.drawH)
+                (viewH - bottomFootMarginPx - rt.offsetY) / Math.max(1, rt.drawH)
               );
               const naturalFloorY = targetHeadY - headLocalPx + minHoverPx;
               const naturalFloorNy = (naturalFloorY - rt.offsetY) / rt.drawH;
@@ -4440,6 +4575,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               if (s.rollTimer <= 0) {
                 s.behavior = 'IDLE';
               }
+            } else if (s.behavior === 'DOZING') {
+              s.dozeTimer -= dt;
+              if (s.dozeTimer <= 0) {
+                s.behavior = 'IDLE';
+              }
             } else if (s.behavior === 'EATING') {
               if (s.bowlAmount <= 0.01) {
                 s.bowlAmount = 0;
@@ -4484,7 +4624,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
                 if (s.eatTickTimer <= 0) {
                   s.eatTickTimer = 0.42;
-                  const bPos = roomToScreen(BOWL_POS.nx, BOWL_POS.ny - 0.02, rt);
+                  const bPos = roomToScreen(s.bowlNx, s.bowlNy - 0.02, rt);
                   spawnParticle('crumb', bPos.x + (Math.random() - 0.5) * 14, bPos.y, {
                     color:
                       s.bowlTreatType === 'salmon' || s.bowlTreatType === 'special_food'
@@ -4526,10 +4666,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 !s.walkingToBath &&
                 !s.isBathing
               ) {
+                const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
                 s.idleZoomies = false;
                 s.behavior = 'WALKING';
-                s.targetNx = BOWL_POS.nx + 0.06;
-                s.targetNy = BOWL_POS.ny;
+                s.targetNx = eatPos.nx;
+                s.targetNy = eatPos.ny;
               }
 
               const dx = s.targetNx - s.nx;
@@ -4538,18 +4679,27 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
               if (s.behavior === 'WALKING' || s.behavior === 'PLAYING') {
                 const isChasingBall = s.behavior === 'PLAYING' && s.toy.active;
-                const isRunning = isChasingBall || s.idleZoomies;
+                const isLateNight = gState === 'PLAYING' && isLateNightDrowsyHour(s.gameHour);
+                if (isLateNight && s.idleZoomies) {
+                  s.idleZoomies = false;
+                  if (s.behavior === 'PLAYING' && !isChasingBall) {
+                    s.behavior = 'WALKING';
+                  }
+                }
+                const isRunning = !isLateNight && (isChasingBall || s.idleZoomies);
                 const catchDist = isChasingBall && s.activeToy === 'toy_mouse' ? 0.056 : 0.032;
                 s.isSprinting = isRunning && (dist > 0.05 || s.idleZoomies);
 
-                // Sakit atau energi <= 20 -> tampak lemas & berjalan lebih lambat
-                const sickSlowFactor = s.isSick
+                // Sakit, sangat ngantuk (01:00–06:00), atau energi <= 20 -> berjalan lebih lambat
+                const drowsyLateFactor = isLateNight ? 0.72 : 1;
+                const baseSlowFactor = s.isSick
                   ? 0.42
                   : s.energy <= 20
                   ? 0.52
                   : s.hunger <= 15
                   ? 0.72
                   : 1;
+                const sickSlowFactor = Math.min(drowsyLateFactor, baseSlowFactor);
                 const speed =
                   (isRunning ? (s.isSprinting ? 0.3 : 0.24) : 0.125) * sickSlowFactor;
 
@@ -4652,20 +4802,24 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   } else if (s.walkingToBath) {
                     enterBathtub();
                   } else if (s.idleDecisionTimer < -50) {
+                    s.sleepSpriteCol = pickRandomSleepPoseCol(s.lifeStage, s.sleepSpriteCol);
                     s.behavior = 'SLEEPING';
                     s.facing = 1;
                     s.idleDecisionTimer = 3.0;
-                  } else if (
-                    s.bowlAmount > 0.05 &&
-                    Math.hypot(s.nx - (BOWL_POS.nx + 0.06), s.ny - BOWL_POS.ny) < 0.035 &&
-                    s.hunger < 99
-                  ) {
-                    s.behavior = 'EATING';
-                    s.facing = -1;
-                    s.eatTickTimer = 0.1;
                   } else {
-                    s.idleZoomies = false;
-                    s.behavior = 'IDLE';
+                    const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+                    if (
+                      s.bowlAmount > 0.05 &&
+                      Math.hypot(s.nx - eatPos.nx, s.ny - eatPos.ny) < 0.035 &&
+                      s.hunger < 99
+                    ) {
+                      s.behavior = 'EATING';
+                      s.facing = eatPos.facing;
+                      s.eatTickTimer = 0.1;
+                    } else {
+                      s.idleZoomies = false;
+                      s.behavior = 'IDLE';
+                    }
                   }
                 }
               } else if (s.behavior === 'IDLE') {
@@ -4692,8 +4846,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                       s.behavior = 'WALKING';
                     }
                   } else {
+                    const isLateNightIdle =
+                      gState === 'PLAYING' && isLateNightDrowsyHour(s.gameHour);
                     const roll = Math.random();
-                    if (roll < 0.36) {
+                    if (roll < 0.34) {
                       s.idleZoomies = false;
                       s.targetNx =
                         FLOOR_BOUNDS.minX + 0.06 + Math.random() * (FLOOR_BOUNDS.maxX - FLOOR_BOUNDS.minX - 0.12);
@@ -4701,6 +4857,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                         FLOOR_BOUNDS.minY + 0.03 + Math.random() * (FLOOR_BOUNDS.maxY - FLOOR_BOUNDS.minY - 0.06);
                       s.behavior = 'WALKING';
                     } else if (
+                      !isLateNightIdle &&
                       roll < PERSONALITY_MODS[s.personality].zoomieCutoff &&
                       s.energy > 35
                     ) {
@@ -4711,12 +4868,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                       s.targetNy =
                         FLOOR_BOUNDS.minY + 0.03 + Math.random() * (FLOOR_BOUNDS.maxY - FLOOR_BOUNDS.minY - 0.06);
                       s.behavior = 'PLAYING';
-                    } else if (roll < 0.8) {
+                    } else if (roll < 0.72) {
                       s.behavior = 'GROOMING';
                       s.groomTimer = 2.1;
-                    } else {
+                    } else if (roll < 0.85) {
                       s.behavior = 'STRETCHING';
                       s.stretchTimer = 1.6;
+                    } else {
+                      s.behavior = 'DOZING';
+                      s.dozeTimer = 3.6 + Math.random() * 2.6;
+                      s.sleepSpriteCol = pickRandomSleepPoseCol(s.lifeStage, s.sleepSpriteCol);
                     }
                   }
                 }
@@ -4778,10 +4939,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         }
 
         const bowlState: BowlRenderState = {
-          nx: BOWL_POS.nx,
-          ny: BOWL_POS.ny,
+          nx: s.bowlNx,
+          ny: s.bowlNy,
           amount: s.bowlAmount,
           treatType: s.bowlTreatType,
+          isDragging: s.isDraggingBowl,
         };
 
         const toyState: ToyRenderState = {
@@ -4808,7 +4970,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           isSprinting: s.isSprinting,
           cleanliness: s.cleanliness,
           energy: s.energy,
-          drowsyStage: getDrowsyStage(s.energy, getDayPhaseFromHour(s.gameHour), s.weather),
+          drowsyStage: getDrowsyStage(
+            s.energy,
+            getDayPhaseFromHour(s.gameHour),
+            s.weather,
+            s.gameHour
+          ),
           hunger: s.hunger,
           happiness: s.happiness,
           isHungry: s.hunger < 40,
@@ -4823,6 +4990,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           isDragging: s.isDraggingCat,
           dragSwing: s.catSwingAngle,
           dragTime: s.catDragTime,
+          sleepSpriteCol: s.sleepSpriteCol,
           sleepingBed: s.behavior === 'SLEEPING' ? s.activeBed : undefined,
           sleepingBedDragging: s.behavior === 'SLEEPING' && s.isDraggingBed,
         };
@@ -4897,6 +5065,41 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             childSpriteSheetsRef.current,
             dragSpriteSheetsRef.current
           );
+          if (s.isDraggingCat) {
+            const scruff = getCatScruffScreenPos(rt);
+            const gapY = scruff.y - s.catDragPtrY;
+            if (gapY > 18) {
+              const endY = scruff.y - 6;
+              const ctrlX = (s.catDragPtrX + scruff.x) * 0.5 - s.catSwingAngle * 14;
+              const ctrlY = (s.catDragPtrY + endY) * 0.5;
+              ctx.save();
+              ctx.lineCap = 'round';
+              ctx.strokeStyle = 'rgba(42, 28, 16, 0.22)';
+              ctx.lineWidth = 3.2;
+              ctx.setLineDash([4, 6]);
+              ctx.beginPath();
+              ctx.moveTo(s.catDragPtrX, s.catDragPtrY + 8);
+              ctx.quadraticCurveTo(ctrlX, ctrlY, scruff.x, endY);
+              ctx.stroke();
+
+              ctx.strokeStyle = 'rgba(255, 248, 232, 0.7)';
+              ctx.lineWidth = 1.6;
+              ctx.beginPath();
+              ctx.moveTo(s.catDragPtrX, s.catDragPtrY + 8);
+              ctx.quadraticCurveTo(ctrlX, ctrlY, scruff.x, endY);
+              ctx.stroke();
+
+              ctx.setLineDash([]);
+              ctx.fillStyle = 'rgba(255, 248, 232, 0.72)';
+              ctx.strokeStyle = 'rgba(42, 28, 16, 0.28)';
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.arc(s.catDragPtrX, s.catDragPtrY, 5.5, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.stroke();
+              ctx.restore();
+            }
+          }
         }
 
         drawParticles(ctx, s.particles);
@@ -4957,6 +5160,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return Math.hypot(px - tubScr.x, py - tubScr.y) <= tubRadius;
     };
 
+    const isPointOnBowl = (px: number, py: number, rt: RoomTransform): boolean => {
+      const s = simRef.current;
+      const bowlScr = roomToScreen(s.bowlNx, s.bowlNy - 0.015, rt);
+      const bowlRadius = 44 * Math.max(0.65, rt.scale);
+      return Math.hypot(px - bowlScr.x, py - bowlScr.y) <= bowlRadius;
+    };
+
     const getCatScruffScreenPos = (rt: RoomTransform) => {
       const s = simRef.current;
       const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
@@ -4991,7 +5201,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return dx * dx + dy * dy <= 1;
     };
 
-    const startCatScruffDrag = (px: number, py: number) => {
+    const startCatScruffDrag = (px: number, py: number, isTouch = false) => {
       const s = simRef.current;
       const rt = s.lastRoomTransform;
       const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
@@ -4999,7 +5209,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const jumpPx = s.z * rt.drawH;
       const headTopX = baseScr.x;
       const headTopY = baseScr.y - jumpPx - 125 * catDrawScale;
+      const dragCursorGapPx = getCatDragCursorGapPx(window.innerHeight || 720, isTouch);
       const bounds = getRoomPlacementBounds();
+      s.catDragIsTouch = isTouch;
       s.isDraggingCat = true;
       s.isDroppingFromDrag = false;
       s.catDragTime = 0;
@@ -5008,8 +5220,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       s.catDragSmoothVx = 0;
       s.catDragPtrX = px;
       s.catDragPtrY = py;
-      s.catDragOffsetX = clamp(px - headTopX, -28, 28);
-      s.catDragOffsetY = clamp(py - headTopY, -24, 24);
+      s.catDragOffsetX = clamp(px - headTopX, -32, 32);
+      s.catDragOffsetY = clamp(py + dragCursorGapPx - headTopY, -180, 180);
       s.catDragPrevPtrNx = clamp(
         (px - s.catDragOffsetX - rt.offsetX) / rt.drawW,
         Math.max(0.03, bounds.minX),
@@ -5028,6 +5240,57 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (!s.isDraggingCat) return;
       s.isDraggingCat = false;
       s.catDragCandidate = false;
+
+      const rt = s.lastRoomTransform;
+      const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
+      const baseScr = roomToScreen(s.nx, s.ny, rt);
+      const jumpPx = s.z * rt.drawH;
+      const catBodyScr = {
+        x: baseScr.x,
+        y: baseScr.y - jumpPx - 105 * catDrawScale,
+      };
+      const catScrCenter = roomToScreen(s.nx, s.ny - s.z - 0.03, rt);
+      const catFloorScr = roomToScreen(s.nx, s.ny, rt);
+      const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.03, rt);
+      const bedScr = roomToScreen(s.bedNx, s.bedNy - 0.03, rt);
+      const tubDistPx = Math.min(
+        Math.hypot(s.catDragPtrX - tubScr.x, s.catDragPtrY - tubScr.y),
+        Math.hypot(catBodyScr.x - tubScr.x, catBodyScr.y - tubScr.y),
+        Math.hypot(catScrCenter.x - tubScr.x, catScrCenter.y - tubScr.y)
+      );
+      const bedDistPx = Math.min(
+        Math.hypot(s.catDragPtrX - bedScr.x, s.catDragPtrY - bedScr.y),
+        Math.hypot(catBodyScr.x - bedScr.x, catBodyScr.y - bedScr.y),
+        Math.hypot(catScrCenter.x - bedScr.x, catScrCenter.y - bedScr.y)
+      );
+
+      const overTub =
+        isPointOnTub(s.catDragPtrX, s.catDragPtrY, rt) ||
+        isPointOnTub(catBodyScr.x, catBodyScr.y, rt) ||
+        isPointOnTub(catScrCenter.x, catScrCenter.y, rt) ||
+        isPointOnTub(catFloorScr.x, catFloorScr.y, rt) ||
+        Math.hypot(s.nx - s.tubNx, (s.ny - s.tubNy) * 1.6) <= 0.1;
+      const overBed =
+        isPointOnBed(s.catDragPtrX, s.catDragPtrY, rt) ||
+        isPointOnBed(catBodyScr.x, catBodyScr.y, rt) ||
+        isPointOnBed(catScrCenter.x, catScrCenter.y, rt) ||
+        isPointOnBed(catFloorScr.x, catFloorScr.y, rt) ||
+        Math.hypot(s.nx - s.bedNx, (s.ny - s.bedNy) * 1.6) <= 0.1;
+
+      if (overTub && (!overBed || tubDistPx <= bedDistPx)) {
+        const targetBathId: BathItemId =
+          s.lastBathItemId !== 'basic_soap' && s.inventory[s.lastBathItemId] <= 0
+            ? 'basic_soap'
+            : s.lastBathItemId;
+        if (useBathItemInternal(targetBathId, true)) {
+          return;
+        }
+      } else if (overBed) {
+        if (startSleepInternal(s.lastSleepMode, true)) {
+          return;
+        }
+      }
+
       const dropPos = constrainCatFloorPos(s.nx, s.ny, { nx: 0.52, ny: 0.78 });
       s.catDropTargetNx = dropPos.nx;
       s.catDropTargetNy = dropPos.ny;
@@ -5053,12 +5316,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         canvas.style.cursor = "url('/assets/ui/cursor_brush.png') 10 10, grab";
       } else if (mode === 'TOY') {
         canvas.style.cursor = 'crosshair';
-      } else if (s.isDraggingCat || s.isDraggingBed || s.isDraggingTub) {
+      } else if (s.isDraggingCat || s.isDraggingBed || s.isDraggingTub || s.isDraggingBowl) {
         canvas.style.cursor = 'grabbing';
       } else if (
         isPointOnCatNeck(px, py, s.lastRoomTransform) ||
         isPointOnBed(px, py, s.lastRoomTransform) ||
-        isPointOnTub(px, py, s.lastRoomTransform)
+        isPointOnTub(px, py, s.lastRoomTransform) ||
+        isPointOnBowl(px, py, s.lastRoomTransform)
       ) {
         canvas.style.cursor = 'grab';
       } else {
@@ -5318,10 +5582,44 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           roomPt.ny <= FLOOR_BOUNDS.maxY &&
           s.behavior !== 'SLEEPING'
         ) {
-          s.idleZoomies = false;
+          const nowMs = performance.now();
+          const isDoubleTap =
+            nowMs - s.lastFloorTapAt <= 360 &&
+            Math.hypot(px - s.lastFloorTapX, py - s.lastFloorTapY) <= 56;
+          s.lastFloorTapAt = nowMs;
+          s.lastFloorTapX = px;
+          s.lastFloorTapY = py;
+
+          const isLateNight = isLateNightDrowsyHour(s.gameHour);
+          if (isDoubleTap) {
+            s.lastFloorTapAt = 0;
+            if (isLateNight) {
+              s.idleZoomies = false;
+              s.behavior = 'WALKING';
+              soundEngine.playMeow(0.84);
+              const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
+              spawnParticle('text', catPos.x, catPos.y - 34, {
+                label: 'Mengantuk berat (01:00–06:00)! Tidak mau berlari',
+                color: '#FDE68A',
+                size: 13,
+                vy: -24,
+                maxLife: 1.4,
+              });
+            } else if (s.isSick || s.energy <= 15) {
+              s.idleZoomies = false;
+              s.behavior = 'WALKING';
+              soundEngine.playMeow(0.84);
+            } else {
+              s.idleZoomies = true;
+              s.behavior = 'PLAYING';
+              soundEngine.playMeow(1.1);
+            }
+          } else {
+            s.idleZoomies = false;
+            s.behavior = 'WALKING';
+          }
           s.targetNx = roomPt.nx;
           s.targetNy = roomPt.ny;
-          s.behavior = 'WALKING';
           s.idleDecisionTimer = 3.5;
         }
       }
@@ -5358,6 +5656,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.isDraggingBed = false;
           s.tubDragCandidate = false;
           s.isDraggingTub = false;
+          s.bowlDragCandidate = false;
+          s.isDraggingBowl = false;
           s.catDragCandidate = false;
           if (s.isDraggingCat) {
             finishCatScruffDrag();
@@ -5397,18 +5697,21 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
             const onBed = isPointOnBed(px, py, rt);
             const onTub = isPointOnTub(px, py, rt);
-            if (onBed || onTub) {
+            const onBowl = isPointOnBowl(px, py, rt);
+            if (onBed || onTub || onBowl) {
               const bedScr = roomToScreen(s.bedNx, s.bedNy - 0.03, rt);
               const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.03, rt);
-              const pickTub =
-                onTub &&
-                (!onBed ||
-                  Math.hypot(px - tubScr.x, py - tubScr.y) <=
-                    Math.hypot(px - bedScr.x, py - bedScr.y));
+              const bowlScr = roomToScreen(s.bowlNx, s.bowlNy - 0.015, rt);
+              const candidates: Array<{ kind: 'bed' | 'tub' | 'bowl'; dist: number }> = [];
+              if (onBed) candidates.push({ kind: 'bed', dist: Math.hypot(px - bedScr.x, py - bedScr.y) });
+              if (onTub) candidates.push({ kind: 'tub', dist: Math.hypot(px - tubScr.x, py - tubScr.y) });
+              if (onBowl) candidates.push({ kind: 'bowl', dist: Math.hypot(px - bowlScr.x, py - bowlScr.y) });
+              candidates.sort((a, b) => a.dist - b.dist);
+              const picked = candidates[0].kind;
 
               const roomPt = screenToRoom(px, py, rt);
 
-              if (pickTub) {
+              if (picked === 'tub') {
                 s.tubDragCandidate = true;
                 s.tubDragStartX = px;
                 s.tubDragStartY = py;
@@ -5416,6 +5719,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.tubDragOffsetNy = s.tubNy - roomPt.ny;
                 if (distToCat > hitRadius || s.isBathing) {
                   s.isDraggingTub = true;
+                  soundEngine.unlock();
+                }
+              } else if (picked === 'bowl') {
+                s.bowlDragCandidate = true;
+                s.bowlDragStartX = px;
+                s.bowlDragStartY = py;
+                s.bowlDragOffsetNx = s.bowlNx - roomPt.nx;
+                s.bowlDragOffsetNy = s.bowlNy - roomPt.ny;
+                if (distToCat > hitRadius) {
+                  s.isDraggingBowl = true;
                   soundEngine.unlock();
                 }
               } else {
@@ -5450,14 +5763,25 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               const dx = px - s.catDragStartX;
               const dy = py - s.catDragStartY;
               const moveDist = Math.hypot(dx, dy);
+              const isTouch = e.pointerType === 'touch';
               if (s.catDragZone === 'neck') {
                 if (moveDist > 6) {
-                  startCatScruffDrag(px, py);
+                  startCatScruffDrag(px, py, isTouch);
+                  try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  } catch {
+                    // ignore if pointer capture is unsupported
+                  }
                 }
               } else {
                 // On lower body: lifting upward picks up the cat, horizontal rubbing falls back to petting
                 if (dy < -10 && -dy >= Math.abs(dx) * 0.65) {
-                  startCatScruffDrag(px, py);
+                  startCatScruffDrag(px, py, isTouch);
+                  try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  } catch {
+                    // ignore if pointer capture is unsupported
+                  }
                 } else if (moveDist > 10) {
                   s.catDragCandidate = false;
                 }
@@ -5491,6 +5815,39 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               } else if (s.walkingToBath) {
                 s.targetNx = s.tubNx;
                 s.targetNy = s.tubNy;
+              }
+              updateCanvasCursor(px, py);
+              return;
+            }
+          }
+
+          if (s.bowlDragCandidate && s.pointerDown) {
+            if (!s.isDraggingBowl && Math.hypot(px - s.bowlDragStartX, py - s.bowlDragStartY) > 6) {
+              s.isDraggingBowl = true;
+              soundEngine.unlock();
+            }
+            if (s.isDraggingBowl) {
+              const roomPt = screenToRoom(px, py, s.lastRoomTransform);
+              const nextBowl = constrainBowlPos(
+                roomPt.nx + s.bowlDragOffsetNx,
+                roomPt.ny + s.bowlDragOffsetNy,
+                { nx: s.bowlNx, ny: s.bowlNy }
+              );
+              s.bowlNx = nextBowl.nx;
+              s.bowlNy = nextBowl.ny;
+              const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+              if (s.behavior === 'EATING') {
+                s.nx = eatPos.nx;
+                s.ny = eatPos.ny;
+                s.facing = eatPos.facing;
+              } else if (
+                s.behavior === 'WALKING' &&
+                s.bowlAmount > 0.05 &&
+                s.idleDecisionTimer > -50 &&
+                !s.walkingToBath
+              ) {
+                s.targetNx = eatPos.nx;
+                s.targetNy = eatPos.ny;
               }
               updateCanvasCursor(px, py);
               return;
@@ -5562,6 +5919,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           const wasDraggingBed = s.isDraggingBed;
           const wasTubCandidate = s.tubDragCandidate;
           const wasDraggingTub = s.isDraggingTub;
+          const wasBowlCandidate = s.bowlDragCandidate;
+          const wasDraggingBowl = s.isDraggingBowl;
           s.pointerDown = false;
           s.brushScrubAccum = 0;
           s.petRubAccum = 0;
@@ -5570,8 +5929,17 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.isDraggingBed = false;
           s.tubDragCandidate = false;
           s.isDraggingTub = false;
+          s.bowlDragCandidate = false;
+          s.isDraggingBowl = false;
 
           if (wasDraggingCat) {
+            try {
+              if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+              }
+            } catch {
+              // ignore
+            }
             finishCatScruffDrag();
           } else if (wasDraggingTub) {
             soundEngine.playBounce();
@@ -5583,6 +5951,19 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 vx: (Math.random() - 0.5) * 45,
                 vy: -25 - Math.random() * 25,
                 maxLife: 0.65,
+              });
+            }
+            onAutoSaveNeededRef.current?.();
+          } else if (wasDraggingBowl) {
+            soundEngine.playBounce();
+            const bowlScr = roomToScreen(s.bowlNx, s.bowlNy, s.lastRoomTransform);
+            for (let i = 0; i < 4; i++) {
+              spawnParticle('sparkle', bowlScr.x + (Math.random() - 0.5) * 42, bowlScr.y, {
+                color: '#FBBF24',
+                size: 6.5,
+                vx: (Math.random() - 0.5) * 40,
+                vy: -22 - Math.random() * 22,
+                maxLife: 0.6,
               });
             }
             onAutoSaveNeededRef.current?.();
@@ -5599,12 +5980,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               });
             }
             onAutoSaveNeededRef.current?.();
-          } else if (wasCatCandidate || wasBedCandidate || wasTubCandidate) {
+          } else if (wasCatCandidate || wasBedCandidate || wasTubCandidate || wasBowlCandidate) {
             handlePointerInteraction(e.clientX, e.clientY, true);
           }
           updateCanvasCursor(px, py);
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(e) => {
           const s = simRef.current;
           s.pointerDown = false;
           s.brushScrubAccum = 0;
@@ -5614,6 +5995,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.isDraggingBed = false;
           s.tubDragCandidate = false;
           s.isDraggingTub = false;
+          s.bowlDragCandidate = false;
+          s.isDraggingBowl = false;
+          try {
+            if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            }
+          } catch {
+            // ignore
+          }
           if (s.isDraggingCat) {
             finishCatScruffDrag();
           }

@@ -1,0 +1,384 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isValidInventory(inv) {
+      return inv is map
+        && inv.keys().hasAll(['main_food', 'special_food', 'shampoo_foam', 'spa_bath'])
+        && inv.keys().hasOnly(['main_food', 'special_food', 'shampoo_foam', 'spa_bath'])
+        && inv.main_food is number && inv.main_food >= 0 && inv.main_food <= 9999
+        && inv.special_food is number && inv.special_food >= 0 && inv.special_food <= 9999
+        && inv.shampoo_foam is number && inv.shampoo_foam >= 0 && inv.shampoo_foam <= 9999
+        && inv.spa_bath is number && inv.spa_bath >= 0 && inv.spa_bath <= 9999;
+    }
+
+    function isValidCooldowns(cd) {
+      return cd is map
+        && cd.keys().hasAll([
+          'snack',
+          'basicSoap',
+          'miniGame',
+          'interactivePlay',
+          'petShort',
+          'petFull',
+          'sleepManual'
+        ])
+        && cd.keys().hasOnly([
+          'snack',
+          'basicSoap',
+          'miniGame',
+          'interactivePlay',
+          'petShort',
+          'petFull',
+          'sleepManual'
+        ])
+        && cd.snack is number && cd.snack >= 0
+        && cd.basicSoap is number && cd.basicSoap >= 0
+        && cd.miniGame is number && cd.miniGame >= 0
+        && cd.interactivePlay is number && cd.interactivePlay >= 0
+        && cd.petShort is number && cd.petShort >= 0
+        && cd.petFull is number && cd.petFull >= 0
+        && cd.sleepManual is number && cd.sleepManual >= 0;
+    }
+
+    function hasRequiredCloudSaveKeys(data) {
+      return data.keys().hasAll([
+        'ownerId',
+        'name',
+        'breed',
+        'personality',
+        'hunger',
+        'happiness',
+        'cleanliness',
+        'energy',
+        'health',
+        'isSick',
+        'isRecovering',
+        'affectionXp',
+        'level',
+        'coins',
+        'day',
+        'gameHour',
+        'timeOfDay',
+        'weather',
+        'lifeStage',
+        'stageElapsedSec',
+        'careMistakes',
+        'adultBranch',
+        'totalCatches',
+        'totalPets',
+        'activeBackground',
+        'unlockedBackgrounds',
+        'activeBed',
+        'unlockedBeds',
+        'activeBathtub',
+        'unlockedBathtubs',
+        'activeToy',
+        'unlockedToys',
+        'equippedHat',
+        'equippedGlasses',
+        'equippedScarf',
+        'unlockedAccessories',
+        'inventory',
+        'sleepMode',
+        'sleepRemainingSec',
+        'sleepDurationSec',
+        'sleepTargetEnergy',
+        'sleepTargetHappy',
+        'sleepTargetHunger',
+        'sleepTargetClean',
+        'sleepAppliedEnergy',
+        'sleepAppliedHappy',
+        'sleepAppliedHunger',
+        'sleepAppliedClean',
+        'zeroEnergyElapsedSec',
+        'cooldownsUntil',
+        'bedNx',
+        'bedNy',
+        'tubNx',
+        'tubNy',
+        'bowlNx',
+        'bowlNy',
+        'lastBathItemId',
+        'lastSleepMode',
+        'lastFreeFeedAt',
+        'lowCleanlinessStrikes',
+        'wasUnder25Clean',
+        'lastSavedTime',
+        'savedAt',
+        'createdAt',
+        'updatedAt'
+      ]) && data.keys().hasOnly([
+        'ownerId',
+        'name',
+        'breed',
+        'personality',
+        'hunger',
+        'happiness',
+        'cleanliness',
+        'energy',
+        'health',
+        'isSick',
+        'isRecovering',
+        'affectionXp',
+        'level',
+        'coins',
+        'day',
+        'gameHour',
+        'timeOfDay',
+        'weather',
+        'lifeStage',
+        'stageElapsedSec',
+        'careMistakes',
+        'adultBranch',
+        'totalCatches',
+        'totalPets',
+        'activeBackground',
+        'unlockedBackgrounds',
+        'activeBed',
+        'unlockedBeds',
+        'activeBathtub',
+        'unlockedBathtubs',
+        'activeToy',
+        'unlockedToys',
+        'equippedHat',
+        'equippedGlasses',
+        'equippedScarf',
+        'unlockedAccessories',
+        'inventory',
+        'sleepMode',
+        'sleepRemainingSec',
+        'sleepDurationSec',
+        'sleepTargetEnergy',
+        'sleepTargetHappy',
+        'sleepTargetHunger',
+        'sleepTargetClean',
+        'sleepAppliedEnergy',
+        'sleepAppliedHappy',
+        'sleepAppliedHunger',
+        'sleepAppliedClean',
+        'zeroEnergyElapsedSec',
+        'cooldownsUntil',
+        'bedNx',
+        'bedNy',
+        'tubNx',
+        'tubNy',
+        'bowlNx',
+        'bowlNy',
+        'lastBathItemId',
+        'lastSleepMode',
+        'lastFreeFeedAt',
+        'lowCleanlinessStrikes',
+        'wasUnder25Clean',
+        'lastSavedTime',
+        'savedAt',
+        'createdAt',
+        'updatedAt'
+      ]);
+    }
+
+    function isValidCatStats(data) {
+      return isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 20
+        && data.breed is string && data.breed.size() <= 16 && data.breed in ['oren', 'mochi', 'arang', 'abu']
+        && data.personality is string && data.personality.size() <= 16 && data.personality in ['playful', 'lazy', 'shy']
+        && data.hunger is number && data.hunger >= 0 && data.hunger <= 100
+        && data.happiness is number && data.happiness >= 0 && data.happiness <= 100
+        && data.cleanliness is number && data.cleanliness >= 0 && data.cleanliness <= 100
+        && data.energy is number && data.energy >= 0 && data.energy <= 100
+        && data.health is number && data.health >= 0 && data.health <= 100
+        && data.isSick is bool
+        && data.isRecovering is bool;
+    }
+
+    function isValidProgression(data) {
+      return data.affectionXp is number && data.affectionXp >= 0
+        && data.level is number && data.level >= 1
+        && data.coins is number && data.coins >= 0
+        && data.day is number && data.day >= 0
+        && data.gameHour is number && data.gameHour >= 0 && data.gameHour <= 24
+        && data.timeOfDay is number && data.timeOfDay >= 0 && data.timeOfDay <= 1
+        && data.weather is string && data.weather.size() <= 16 && data.weather in ['cerah', 'hujan', 'malam']
+        && data.lifeStage is string && data.lifeStage.size() <= 16 && data.lifeStage in ['baby', 'child', 'teen', 'adult', 'senior']
+        && data.stageElapsedSec is number && data.stageElapsedSec >= 0
+        && data.careMistakes is number && data.careMistakes >= 0
+        && data.adultBranch is string && data.adultBranch.size() <= 16 && data.adultBranch in ['prima', 'mandiri', 'sensitif']
+        && data.totalCatches is number && data.totalCatches >= 0
+        && data.totalPets is number && data.totalPets >= 0;
+    }
+
+    function isValidCustomization(data) {
+      return data.activeBackground is string && data.activeBackground.size() <= 32 && data.activeBackground in ['classic_home', 'apartment', 'tatami']
+        && data.unlockedBackgrounds is list && data.unlockedBackgrounds.size() >= 1 && data.unlockedBackgrounds.size() <= 10 && data.unlockedBackgrounds[0] is string && data.unlockedBackgrounds.hasOnly(['classic_home', 'apartment', 'tatami'])
+        && data.activeBed is string && data.activeBed.size() <= 32 && data.activeBed in ['kasur_kucing', 'kasur_semangka', 'keranjang_rajut', 'kasur_donat', 'tenda_kerajaan']
+        && data.unlockedBeds is list && data.unlockedBeds.size() >= 1 && data.unlockedBeds.size() <= 10 && data.unlockedBeds[0] is string && data.unlockedBeds.hasOnly(['kasur_kucing', 'kasur_semangka', 'keranjang_rajut', 'kasur_donat', 'tenda_kerajaan'])
+        && data.activeBathtub is string && data.activeBathtub.size() <= 32 && data.activeBathtub in ['bak_kucing', 'bak_ikan', 'bak_onsen', 'bak_kerang', 'bak_batu']
+        && data.unlockedBathtubs is list && data.unlockedBathtubs.size() >= 1 && data.unlockedBathtubs.size() <= 10 && data.unlockedBathtubs[0] is string && data.unlockedBathtubs.hasOnly(['bak_kucing', 'bak_ikan', 'bak_onsen', 'bak_kerang', 'bak_batu'])
+        && data.activeToy is string && data.activeToy.size() <= 32 && data.activeToy in ['yarn_ball', 'laser_pointer', 'feather_wand', 'toy_mouse']
+        && data.unlockedToys is list && data.unlockedToys.size() >= 1 && data.unlockedToys.size() <= 10 && data.unlockedToys[0] is string && data.unlockedToys.hasOnly(['yarn_ball', 'laser_pointer', 'feather_wand', 'toy_mouse'])
+        && data.equippedHat is string && data.equippedHat.size() <= 32 && data.equippedHat in ['none', 'beret_merah', 'topi_pesta', 'mahkota_emas']
+        && data.equippedGlasses is string && data.equippedGlasses.size() <= 32 && data.equippedGlasses in ['none', 'kacamata_bulat', 'kacamata_hitam', 'kacamata_hati']
+        && data.equippedScarf is string && data.equippedScarf.size() <= 32 && data.equippedScarf in ['default', 'syal_polkadot', 'syal_garis', 'dasi_kupu']
+        && data.unlockedAccessories is list && data.unlockedAccessories.size() <= 20 && data.unlockedAccessories.hasOnly(['beret_merah', 'topi_pesta', 'mahkota_emas', 'kacamata_bulat', 'kacamata_hitam', 'kacamata_hati', 'syal_polkadot', 'syal_garis', 'dasi_kupu']) && (data.unlockedAccessories.size() == 0 || data.unlockedAccessories[0] is string);
+    }
+
+    function isValidSleepAndMeta(data) {
+      return isValidInventory(data.inventory)
+        && data.sleepMode is string && data.sleepMode.size() <= 24 && data.sleepMode in ['none', 'power_nap', 'full_rest', 'auto_sleep']
+        && data.sleepRemainingSec is number && data.sleepRemainingSec >= 0
+        && data.sleepDurationSec is number && data.sleepDurationSec >= 0
+        && data.sleepTargetEnergy is number
+        && data.sleepTargetHappy is number
+        && data.sleepTargetHunger is number
+        && data.sleepTargetClean is number
+        && data.sleepAppliedEnergy is number
+        && data.sleepAppliedHappy is number
+        && data.sleepAppliedHunger is number
+        && data.sleepAppliedClean is number
+        && data.zeroEnergyElapsedSec is number && data.zeroEnergyElapsedSec >= 0
+        && isValidCooldowns(data.cooldownsUntil);
+    }
+
+    function isValidPositionsAndTimestamps(data) {
+      return data.bedNx is number && data.bedNx >= 0 && data.bedNx <= 1
+        && data.bedNy is number && data.bedNy >= 0 && data.bedNy <= 1
+        && data.tubNx is number && data.tubNx >= 0 && data.tubNx <= 1
+        && data.tubNy is number && data.tubNy >= 0 && data.tubNy <= 1
+        && data.bowlNx is number && data.bowlNx >= 0 && data.bowlNx <= 1
+        && data.bowlNy is number && data.bowlNy >= 0 && data.bowlNy <= 1
+        && data.lastBathItemId is string && data.lastBathItemId.size() <= 32 && data.lastBathItemId in ['basic_soap', 'shampoo_foam', 'spa_bath']
+        && data.lastSleepMode is string && data.lastSleepMode.size() <= 24 && data.lastSleepMode in ['power_nap', 'full_rest']
+        && data.lastFreeFeedAt is number && data.lastFreeFeedAt >= 0
+        && data.lowCleanlinessStrikes is number && data.lowCleanlinessStrikes >= 0
+        && data.wasUnder25Clean is bool
+        && data.lastSavedTime is number && data.lastSavedTime >= 0
+        && data.savedAt is number && data.savedAt >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCloudSave(data) {
+      return hasRequiredCloudSaveKeys(data)
+        && isValidCatStats(data)
+        && isValidProgression(data)
+        && isValidCustomization(data)
+        && isValidSleepAndMeta(data)
+        && isValidPositionsAndTimestamps(data);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /cloudSaves/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && isVerified()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidCloudSave(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isVerified()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidCloudSave(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name',
+            'breed',
+            'personality',
+            'hunger',
+            'happiness',
+            'cleanliness',
+            'energy',
+            'health',
+            'isSick',
+            'isRecovering',
+            'affectionXp',
+            'level',
+            'coins',
+            'day',
+            'gameHour',
+            'timeOfDay',
+            'weather',
+            'lifeStage',
+            'stageElapsedSec',
+            'careMistakes',
+            'adultBranch',
+            'totalCatches',
+            'totalPets',
+            'activeBackground',
+            'unlockedBackgrounds',
+            'activeBed',
+            'unlockedBeds',
+            'activeBathtub',
+            'unlockedBathtubs',
+            'activeToy',
+            'unlockedToys',
+            'equippedHat',
+            'equippedGlasses',
+            'equippedScarf',
+            'unlockedAccessories',
+            'inventory',
+            'sleepMode',
+            'sleepRemainingSec',
+            'sleepDurationSec',
+            'sleepTargetEnergy',
+            'sleepTargetHappy',
+            'sleepTargetHunger',
+            'sleepTargetClean',
+            'sleepAppliedEnergy',
+            'sleepAppliedHappy',
+            'sleepAppliedHunger',
+            'sleepAppliedClean',
+            'zeroEnergyElapsedSec',
+            'cooldownsUntil',
+            'bedNx',
+            'bedNy',
+            'tubNx',
+            'tubNy',
+            'bowlNx',
+            'bowlNy',
+            'lastBathItemId',
+            'lastSleepMode',
+            'lastFreeFeedAt',
+            'lowCleanlinessStrikes',
+            'wasUnder25Clean',
+            'lastSavedTime',
+            'savedAt',
+            'updatedAt'
+          ])
+        );
+      allow delete: if isSignedIn()
+        && isVerified()
+        && isValidId(userId)
+        && userId == request.auth.uid;
+    }
+  }
+}

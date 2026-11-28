@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Gamepad2, Heart, Lock, Moon, Sparkles, Sun, X } from 'lucide-react';
 import {
   ACTION_DELTAS,
@@ -43,10 +43,81 @@ interface GameHudProps {
   onPetCat: (kind: 'short' | 'full') => void;
   onGiveMedicine: () => void;
   onToggleShop: () => void;
-  onOpenLifeStage: () => void;
+  onOpenLifeStage?: () => void;
   onOpenMiniGame: () => void;
   onPause: () => void;
 }
+
+interface OverflowRunningTextProps {
+  text: string;
+  className?: string;
+  align?: 'left' | 'right';
+}
+
+const OverflowRunningText: React.FC<OverflowRunningTextProps> = ({
+  text,
+  className = '',
+  align = 'left',
+}) => {
+  const containerRef = useRef<HTMLSpanElement | null>(null);
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  const [overflowState, setOverflowState] = useState<{ isOverflowing: boolean; textWidth: number }>({
+    isOverflowing: false,
+    textWidth: 0,
+  });
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const container = containerRef.current;
+      const textEl = textRef.current;
+      if (!container || !textEl) return;
+      const textWidth = Math.ceil(textEl.getBoundingClientRect().width);
+      const containerWidth = Math.floor(container.clientWidth);
+      const isOverflowing = containerWidth > 0 && textWidth > containerWidth + 1;
+      setOverflowState((prev) =>
+        prev.isOverflowing === isOverflowing && Math.abs(prev.textWidth - textWidth) <= 1
+          ? prev
+          : { isOverflowing, textWidth }
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined' || !containerRef.current) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [text]);
+
+  const durationSec = Math.max(3.6, (overflowState.textWidth + 24) / 26);
+  const alignClass = !overflowState.isOverflowing && align === 'right' ? 'text-right' : 'text-left';
+
+  return (
+    <span
+      ref={containerRef}
+      className={`relative block overflow-hidden whitespace-nowrap min-w-0 ${alignClass} ${className}`}
+    >
+      {overflowState.isOverflowing ? (
+        <span
+          className="inline-flex whitespace-nowrap animate-marquee-ltr will-change-transform"
+          style={{ animationDuration: `${durationSec.toFixed(2)}s` }}
+        >
+          <span className="pr-6">
+            <span ref={textRef} className="inline-block whitespace-nowrap">
+              {text}
+            </span>
+          </span>
+          <span className="pr-6" aria-hidden="true">
+            {text}
+          </span>
+        </span>
+      ) : (
+        <span ref={textRef} className="inline-block whitespace-nowrap">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+};
 
 interface PixelVitalMeterProps {
   label: string;
@@ -58,6 +129,7 @@ interface PixelVitalMeterProps {
   innerRim?: boolean;
   statusTag?: string | null;
   critical?: boolean;
+  fullWidth?: boolean;
 }
 
 const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
@@ -70,15 +142,20 @@ const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
   innerRim,
   statusTag,
   critical,
+  fullWidth,
 }) => {
   const isLow = critical || value < 20;
   const pct = Math.max(0, Math.min(100, value));
 
   return (
-    <div className="flex items-center gap-2.5 short:gap-1.5 rounded-xl short:rounded-lg bg-[#F9EDD4]/85 border border-[#D4B483] px-2.5 py-2 short:px-1.5 short:py-1 shadow-[inset_0_1px_0_rgba(255,253,248,0.85)] min-w-[144px] sm:min-w-[172px] short:min-w-[112px]">
+    <div
+      className={`flex items-center gap-2 mobile:gap-1 rounded-xl mobile:rounded-lg bg-[#F9EDD4]/85 border border-[#D4B483] px-2 py-1.5 mobile:px-1 mobile:py-0.5 shadow-[inset_0_1px_0_rgba(255,253,248,0.85)] shrink-0 ${
+        fullWidth ? 'w-full' : 'w-[154px] mobile:w-[98px]'
+      }`}
+    >
       {/* Wooden Square Icon Frame */}
-      <div className="w-10 h-10 short:w-7 short:h-7 rounded-lg short:rounded-md wood-modal-frame p-[2.5px] short:p-[2px] border-[2px] short:border-[1.5px] border-[#5E2F12] shadow-[0_2px_0_rgba(94,47,18,0.28)] shrink-0">
-        <div className="w-full h-full rounded-[5px] short:rounded-[3px] bg-[#FFF8E6] border border-[#7A4928]/70 flex items-center justify-center p-1 short:p-0.5">
+      <div className="w-8 h-8 mobile:w-5 mobile:h-5 rounded-lg mobile:rounded-md wood-modal-frame p-[2px] mobile:p-[1px] border-[2px] mobile:border border-[#5E2F12] shadow-[0_2px_0_rgba(94,47,18,0.28)] shrink-0">
+        <div className="w-full h-full rounded-[5px] mobile:rounded-[3px] bg-[#FFF8E6] border border-[#7A4928]/70 flex items-center justify-center p-0.5">
           {iconSrc ? (
             <img
               src={iconSrc}
@@ -93,23 +170,23 @@ const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline justify-between gap-1 leading-none mb-1.5 short:mb-1">
-          <span className="font-display font-extrabold text-[14px] short:text-[10.5px] tracking-tight text-[#5A2D12] whitespace-nowrap">
+        <div className="flex items-baseline justify-between gap-1 leading-none mb-1 mobile:mb-0.5 min-w-0">
+          <span className="font-display font-extrabold text-[12.5px] mobile:text-[8.5px] tracking-tight text-[#5A2D12] whitespace-nowrap shrink-0">
             {label}
           </span>
           {statusTag && (
-            <span
-              className={`text-[10px] short:text-[8.5px] font-extrabold uppercase tracking-wide whitespace-nowrap ${
+            <OverflowRunningText
+              text={statusTag}
+              align="right"
+              className={`text-[9px] mobile:text-[7px] font-extrabold uppercase tracking-wide flex-1 ${
                 isLow ? 'text-[#B91C1C]' : 'text-[#B45309]'
               }`}
-            >
-              {statusTag}
-            </span>
+            />
           )}
         </div>
 
         <div
-          className="relative w-full h-3.5 short:h-2.5 rounded-full bg-[#EFE0C1] border-[2px] short:border-[1.5px] overflow-hidden shadow-inner"
+          className="relative w-full h-3 mobile:h-1.5 rounded-full bg-[#EFE0C1] border-[1.5px] mobile:border overflow-hidden shadow-inner"
           style={{ borderColor: isLow ? '#B91C1C' : borderColor }}
         >
           <div
@@ -127,7 +204,7 @@ const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
           <div className="pointer-events-none absolute inset-y-0 left-[40%] w-[1.5px] bg-[#5A2D12]/30" />
           <div className="pointer-events-none absolute inset-y-0 left-[60%] w-[1.5px] bg-[#5A2D12]/30" />
           <div className="pointer-events-none absolute inset-y-0 left-[80%] w-[1.5px] bg-[#5A2D12]/30" />
-          <div className="pointer-events-none absolute inset-x-1 top-[1px] h-[2.5px] short:h-[1px] rounded-full bg-white/45" />
+          <div className="pointer-events-none absolute inset-x-1 top-[1px] h-[2px] mobile:h-[1px] rounded-full bg-white/45" />
         </div>
       </div>
     </div>
@@ -201,7 +278,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-3 sm:p-5 short:px-3 short:py-2 safe-inset-hud">
+    <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-3 sm:p-5 mobile:px-2 mobile:py-1.5 safe-inset-hud">
       {activeMenu && (
         <div
           className="fixed inset-0 z-0 pointer-events-auto"
@@ -211,17 +288,17 @@ export const GameHud: React.FC<GameHudProps> = ({
       )}
 
       {/* Top Perimeter Row */}
-      <div className="relative z-10 flex flex-wrap short:flex-nowrap items-start justify-between gap-2.5 short:gap-2">
+      <div className="relative z-10 flex flex-wrap short:flex-nowrap items-start justify-between gap-2 mobile:gap-1">
         {/* Top-Left: Wooden Frame Status Panel (Image 2 style) */}
         <div
           data-ui-id="hud-status-panel"
           data-ui-label="Panel Status"
-          className="pointer-events-auto wood-modal-frame rounded-2xl short:rounded-xl p-1.5 short:p-1 border-[3px] short:border-2 border-[#5E2F12] shadow-[inset_0_1.5px_0_rgba(255,235,205,0.45),0_4px_0_rgba(58,28,10,0.4)]"
+          className="pointer-events-auto wood-modal-frame rounded-xl mobile:rounded-lg p-1 mobile:p-0.5 border-[2.5px] mobile:border-[1.5px] border-[#5E2F12] shadow-[inset_0_1.5px_0_rgba(255,235,205,0.45),0_3px_0_rgba(58,28,10,0.4)]"
         >
-          <div className="relative rounded-xl short:rounded-lg bg-[#FFF8E8] border-[2px] short:border-[1.5px] border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFFFFF] px-2.5 py-2.5 short:px-1.5 short:py-1.5">
-            <PixelPawCluster className="w-7 h-4 absolute top-1 right-1.5 pointer-events-none opacity-65 short:hidden" />
+          <div className="relative rounded-lg mobile:rounded-md bg-[#FFF8E8] border-[1.5px] mobile:border border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFFFFF] px-2 py-1.5 mobile:px-1 mobile:py-0.5">
+            <PixelPawCluster className="w-6 h-3.5 absolute top-0.5 right-1 pointer-events-none opacity-65 mobile:hidden" />
 
-            <div className="grid grid-cols-2 gap-2 short:gap-1">
+            <div className="grid grid-cols-2 gap-1.5 mobile:gap-0.5">
               <PixelVitalMeter
                 label="Kenyang"
                 value={hud.hunger}
@@ -270,13 +347,14 @@ export const GameHud: React.FC<GameHudProps> = ({
             </div>
 
             {showHealthBar && (
-              <div className="mt-2 short:mt-1">
+              <div className="mt-2 mobile:mt-1">
                 <PixelVitalMeter
                   label="Kesehatan"
                   value={hud.health}
-                  iconNode={<CuteHealthStatIcon className="w-6 h-6 short:w-4 short:h-4" />}
+                  iconNode={<CuteHealthStatIcon className="w-6 h-6 mobile:w-3.5 mobile:h-3.5" />}
                   fillGradient="linear-gradient(180deg, #4ADE80 0%, #16A34A 100%)"
                   borderColor="#2D6A4F"
+                  fullWidth
                   statusTag={
                     hud.isRecovering
                       ? hud.isSick
@@ -294,19 +372,19 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
 
         {/* Top-Right: Wooden Frame Cat Profile Card (Image 1 style) + Pause Button */}
-        <div className="pointer-events-auto flex items-start gap-2 short:gap-1.5 shrink-0">
+        <div className="pointer-events-auto flex items-start gap-1.5 mobile:gap-1 shrink-0 ml-auto">
           <div
             data-ui-id="hud-profile-card"
             data-ui-label="Profil Kucing"
-            className="wood-modal-frame rounded-2xl short:rounded-xl p-1.5 short:p-1 border-[3px] short:border-2 border-[#5E2F12] shadow-[inset_0_1.5px_0_rgba(255,235,205,0.45),0_4px_0_rgba(58,28,10,0.4)]"
+            className="wood-modal-frame rounded-xl mobile:rounded-lg p-1 mobile:p-0.5 border-[2.5px] mobile:border-[1.5px] border-[#5E2F12] shadow-[inset_0_1.5px_0_rgba(255,235,205,0.45),0_3px_0_rgba(58,28,10,0.4)]"
           >
-            <div className="relative rounded-xl short:rounded-lg bg-[#FFF8E8] border-[2px] short:border-[1.5px] border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFFFFF] px-3 py-2 short:px-2 short:py-1.5 flex items-center gap-3 short:gap-2">
-              <PixelPawCluster className="w-7 h-4 absolute top-1 right-1.5 pointer-events-none opacity-65 short:hidden" />
+            <div className="relative rounded-lg mobile:rounded-md bg-[#FFF8E8] border-[1.5px] mobile:border border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFFFFF] px-2 py-1.5 mobile:px-1 mobile:py-0.5 flex items-center gap-2 mobile:gap-1">
+              <PixelPawCluster className="w-6 h-3.5 absolute top-0.5 right-1 pointer-events-none opacity-65 mobile:hidden" />
 
               {/* Circular Wooden Medallion Cat Avatar */}
-              <div className="w-15 h-15 short:w-10 short:h-10 rounded-full wood-modal-frame p-[3px] short:p-[2px] border-[2.5px] short:border-[1.5px] border-[#5E2F12] shadow-[0_2px_0_rgba(94,47,18,0.3)] shrink-0">
-                <div className="w-full h-full rounded-full bg-[#F8EBD0] border-[1.5px] border-[#6E3B1B] flex items-center justify-center overflow-hidden">
-                  <div className="short:scale-[0.68] flex items-center justify-center">
+              <div className="w-12 h-12 mobile:w-7 mobile:h-7 rounded-full wood-modal-frame p-[2px] mobile:p-[1px] border-[2px] mobile:border border-[#5E2F12] shadow-[0_2px_0_rgba(94,47,18,0.3)] shrink-0">
+                <div className="w-full h-full rounded-full bg-[#F8EBD0] border mobile:border border-[#6E3B1B] flex items-center justify-center overflow-hidden">
+                  <div className="scale-[0.84] mobile:scale-[0.48] flex items-center justify-center">
                     <CatAvatarSvg
                       breed={hud.breed}
                       size={46}
@@ -319,16 +397,17 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </div>
               </div>
 
-              {/* Right Content: 2 Clean Rows */}
-              <div className="min-w-0 flex flex-col gap-1.5 short:gap-1 pr-1 short:pr-0">
+              {/* Right Content: 2 Clean Rows (fixed width so card never resizes) */}
+              <div className="w-[216px] mobile:w-[154px] min-w-0 flex flex-col gap-1 mobile:gap-0.5 pr-0.5 mobile:pr-0">
                 {/* Row 1: Name + Day/Time/Weather Pill */}
-                <div className="flex items-center justify-between gap-2.5 short:gap-1.5 whitespace-nowrap">
-                  <span className="font-display font-extrabold text-[20px] short:text-[14px] leading-none text-[#4E270F]">
-                    {hud.name}
-                  </span>
+                <div className="flex items-center justify-between gap-1.5 mobile:gap-0.5 whitespace-nowrap min-w-0">
+                  <OverflowRunningText
+                    text={hud.name}
+                    className="font-display font-extrabold text-[17px] mobile:text-[10.5px] leading-none text-[#4E270F] flex-1"
+                  />
 
                   <span
-                    className="inline-flex items-center gap-1.5 short:gap-1 px-2.5 py-0.5 short:px-1.5 short:py-[1px] rounded-full bg-[#FFF7E2] border-[1.5px] border-[#8C582E] text-[11px] short:text-[9px] font-extrabold text-[#4E270F] tabular-nums shadow-[inset_0_1px_0_#FFFFFF]"
+                    className="inline-flex items-center gap-1 mobile:gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full bg-[#FFF7E2] border-[1.5px] mobile:border border-[#8C582E] text-[10px] mobile:text-[7.5px] font-extrabold text-[#4E270F] tabular-nums shadow-[inset_0_1px_0_#FFFFFF] shrink-0 max-w-[146px] mobile:max-w-[104px] min-w-0"
                     title={
                       (hud.dayPhase === 'pagi'
                         ? 'Pagi (06:00–11:59) · Bonus tidur +10% Energi'
@@ -341,7 +420,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     }
                   >
                     {hud.dayPhase === 'malam' ? (
-                      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 short:w-2.5 short:h-2.5 shrink-0" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="w-3 h-3 mobile:w-2 mobile:h-2 shrink-0" aria-hidden="true">
                         <path
                           d="M17.8 14.8A6.8 6.8 0 0 1 9.2 6.2a6.8 6.8 0 1 0 8.6 8.6Z"
                           fill="#FDE047"
@@ -355,7 +434,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                         />
                       </svg>
                     ) : hud.dayPhase === 'siang' ? (
-                      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 short:w-2.5 short:h-2.5 shrink-0" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="w-3 h-3 mobile:w-2 mobile:h-2 shrink-0" aria-hidden="true">
                         <circle
                           cx="12"
                           cy="12"
@@ -372,7 +451,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                         />
                       </svg>
                     ) : (
-                      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 short:w-2.5 short:h-2.5 shrink-0" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="w-3 h-3 mobile:w-2 mobile:h-2 shrink-0" aria-hidden="true">
                         <path
                           d="M6 16a6 6 0 0 1 12 0"
                           fill="#FDE047"
@@ -390,7 +469,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     {hud.weather === 'hujan' && (
                       <svg
                         viewBox="0 0 24 24"
-                        className="w-3.5 h-3.5 short:w-2.5 short:h-2.5 shrink-0"
+                        className="w-3 h-3 mobile:w-2 mobile:h-2 shrink-0"
                         aria-label="Hujan"
                       >
                         <path
@@ -408,49 +487,57 @@ export const GameHud: React.FC<GameHudProps> = ({
                         />
                       </svg>
                     )}
-                    <span>
-                      Hari {hud.day}
-                      {hud.lifeStage === 'baby' ? ` (${Math.floor(hud.gameHours)}j)` : ''}
-                      {' · '}
-                      {formatGameClock(hud.gameHour)}{' '}
-                      {hud.weather === 'hujan' ? `Hujan ${dayPhaseLabel}` : dayPhaseLabel}
-                    </span>
+                    <OverflowRunningText
+                      text={`Hari ${hud.day}${
+                        hud.lifeStage === 'baby' ? ` (${Math.floor(hud.gameHours)}j)` : ''
+                      } · ${formatGameClock(hud.gameHour)} ${
+                        hud.weather === 'hujan' ? `Hujan ${dayPhaseLabel}` : dayPhaseLabel
+                      }`}
+                      className="flex-1 min-w-0"
+                    />
                   </span>
                 </div>
 
                 {/* Row 2: Golden Stage Pill + Mint Mood Pill + Golden Coin Pill */}
-                <div className="flex items-center gap-1.5 short:gap-1 whitespace-nowrap">
-                  <button
-                    type="button"
-                    onClick={onOpenLifeStage}
-                    title="Lihat Tahap Pertumbuhan & Evolusi"
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 short:px-1.5 short:py-[1px] rounded-full bg-gradient-to-b from-[#FFE686] to-[#F2B538] border-[1.5px] border-[#8C582E] shadow-[inset_0_1px_0_#FFF8D2] text-[11px] short:text-[9px] font-extrabold text-[#4E270F] hover:brightness-105 transition-all cursor-pointer shrink-0"
-                  >
-                    <Sparkles className="w-3 h-3 short:w-2.5 short:h-2.5 shrink-0" />
-                    <span>{LIFE_STAGES[hud.lifeStage].shortLabel}</span>
-                  </button>
+                <div className="flex items-center gap-1 mobile:gap-0.5 whitespace-nowrap min-w-0">
+                  {onOpenLifeStage ? (
+                    <button
+                      type="button"
+                      onClick={onOpenLifeStage}
+                      title="Lihat Tahap Pertumbuhan & Evolusi"
+                      className="inline-flex items-center gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full bg-gradient-to-b from-[#FFE686] to-[#F2B538] border-[1.5px] mobile:border border-[#8C582E] shadow-[inset_0_1px_0_#FFF8D2] text-[10px] mobile:text-[7.5px] font-extrabold text-[#4E270F] hover:brightness-105 transition-all cursor-pointer shrink-0"
+                    >
+                      <Sparkles className="w-2.5 h-2.5 mobile:w-2 mobile:h-2 shrink-0" />
+                      <span>{LIFE_STAGES[hud.lifeStage].shortLabel}</span>
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full bg-gradient-to-b from-[#FFE686] to-[#F2B538] border-[1.5px] mobile:border border-[#8C582E] shadow-[inset_0_1px_0_#FFF8D2] text-[10px] mobile:text-[7.5px] font-extrabold text-[#4E270F] shrink-0">
+                      <Sparkles className="w-2.5 h-2.5 mobile:w-2 mobile:h-2 shrink-0" />
+                      <span>{LIFE_STAGES[hud.lifeStage].shortLabel}</span>
+                    </span>
+                  )}
 
                   <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 short:px-1.5 short:py-[1px] rounded-full text-[11px] short:text-[9px] font-extrabold truncate max-w-[130px] short:max-w-[85px] ${moodPillClass}`}
+                    className={`flex-1 min-w-0 inline-flex items-center gap-1 mobile:gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full text-[10px] mobile:text-[7.5px] font-extrabold ${moodPillClass}`}
                   >
                     {isSleeping && (
-                      <span className="font-display font-black text-[10px] short:text-[8px] tracking-tighter shrink-0">
+                      <span className="font-display font-black text-[9px] mobile:text-[7px] tracking-tighter shrink-0">
                         zZ
                       </span>
                     )}
-                    <span className="truncate">{hud.moodLabel}</span>
+                    <OverflowRunningText text={hud.moodLabel} className="flex-1 min-w-0" />
                   </span>
 
-                  <span className="inline-flex items-center gap-1.5 short:gap-1 px-2.5 py-0.5 short:px-1.5 short:py-[1px] rounded-full bg-[#FFFDF6] border-[1.5px] border-[#6E3B1B] ring-1 ring-inset ring-[#F3C548] text-xs short:text-[9.5px] font-display font-extrabold text-[#4E270F] tabular-nums shrink-0 ml-auto">
+                  <span className="inline-flex items-center gap-1 mobile:gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full bg-[#FFFDF6] border-[1.5px] mobile:border border-[#6E3B1B] ring-1 ring-inset ring-[#F3C548] text-[11px] mobile:text-[7.5px] font-display font-extrabold text-[#4E270F] tabular-nums shrink-0">
                     <img
                       src="/assets/ui/icon_coin.png"
                       alt=""
-                      className="w-4 h-4 short:w-3 short:h-3 object-contain"
+                      className="w-3.5 h-3.5 mobile:w-2.5 mobile:h-2.5 object-contain"
                       draggable={false}
                     />
                     <span>
                       {hud.coins}
-                      <span className="short:hidden"> Koin</span>
+                      <span className="mobile:hidden"> Koin</span>
                     </span>
                   </span>
                 </div>
@@ -461,19 +548,19 @@ export const GameHud: React.FC<GameHudProps> = ({
           <div
             data-ui-id="hud-pause-btn"
             data-ui-label="Tombol Jeda"
-            className="flex flex-col items-end gap-1.5 short:gap-1 shrink-0"
+            className="flex flex-col items-end gap-1.5 mobile:gap-1 shrink-0"
           >
             <button
               type="button"
               onClick={onPause}
-              className="min-w-[44px] min-h-[44px] short:min-w-[40px] short:min-h-[40px] flex items-center justify-center bg-transparent border-0 p-0 hover:scale-105 active:scale-95 transition-transform shrink-0 cursor-pointer"
+              className="min-w-[40px] min-h-[40px] mobile:min-w-[28px] mobile:min-h-[28px] flex items-center justify-center bg-transparent border-0 p-0 hover:scale-105 active:scale-95 transition-transform shrink-0 cursor-pointer"
               aria-label="Menu Jeda"
               title="Menu Jeda (Esc)"
             >
               <img
                 src="/assets/ui/btn_pause.png"
                 alt="Jeda"
-                className="w-12 h-12 short:w-9 short:h-9 object-contain drop-shadow-[0_3px_0_rgba(90,45,18,0.28)]"
+                className="w-10 h-10 mobile:w-7 mobile:h-7 object-contain drop-shadow-[0_3px_0_rgba(90,45,18,0.28)]"
                 draggable={false}
               />
             </button>
@@ -577,9 +664,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                 ? 0
                 : hud.inventory[item.id as keyof ConsumableInventory] ?? 0;
               const isHungerFull = hud.hunger >= 100;
-              const isHappyFull = hud.happiness >= 100;
               const snackCd = item.isFree ? hud.cooldownsSec.snack : 0;
-              const freeBlocked = isHappyFull || snackCd > 0;
+              const freeBlocked = snackCd > 0;
 
               return (
                 <div className="flex items-center justify-between gap-2.5 p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#C79C69]">
@@ -621,11 +707,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                           : 'bg-gradient-to-b from-[#4B9B59] to-[#2E6F3E] border-[#1E4627] text-white cursor-pointer hover:brightness-105'
                       }`}
                     >
-                      {isHappyFull
-                        ? 'Bahagia 100'
-                        : snackCd > 0
-                        ? formatTimerMMSS(snackCd)
-                        : 'Beri Gratis'}
+                      {snackCd > 0 ? formatTimerMMSS(snackCd) : 'Beri Gratis'}
                     </button>
                   ) : stock > 0 ? (
                     <button
@@ -1112,9 +1194,8 @@ export const GameHud: React.FC<GameHudProps> = ({
             {activeMenu === 'pet' && (() => {
               const petShortCd = hud.cooldownsSec.petShort;
               const petFullCd = hud.cooldownsSec.petFull;
-              const isHappyFull = hud.happiness >= 100;
-              const shortBlocked = isSleeping || isHappyFull || petShortCd > 0;
-              const fullBlocked = isSleeping || isHappyFull || petFullCd > 0;
+              const shortBlocked = isSleeping || petShortCd > 0;
+              const fullBlocked = isSleeping || petFullCd > 0;
 
               if (itemPickerOpen) {
                 return (
@@ -1223,8 +1304,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                     >
                       {isSleeping
                         ? 'Tidur'
-                        : isHappyFull
-                        ? 'Bahagia 100'
                         : petFullCd > 0
                         ? formatTimerMMSS(petFullCd)
                         : 'Kasih Sayang'}
@@ -1273,8 +1352,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                   >
                     {isSleeping
                       ? 'Tidur'
-                      : isHappyFull
-                      ? 'Bahagia 100'
                       : petShortCd > 0
                       ? formatTimerMMSS(petShortCd)
                       : 'Elus'}
@@ -1311,7 +1388,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                 );
               }
 
-              const sleepCd = hud.cooldownsSec.sleepManual;
               const isEnergyFull = hud.energy >= 100;
               const isDaytimeTooFresh = hud.dayPhase !== 'malam' && hud.energy > 85;
               const isDaytimeBriefOnly =
@@ -1363,7 +1439,6 @@ export const GameHud: React.FC<GameHudProps> = ({
               const optBlocked =
                 isSleeping ||
                 isEnergyFull ||
-                sleepCd > 0 ||
                 isDaytimeTooFresh ||
                 (isDaytimeBriefOnly && opt.id === 'full_rest');
 
@@ -1371,8 +1446,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                 ? 'Tidur'
                 : isEnergyFull
                 ? 'Energi 100'
-                : sleepCd > 0
-                ? formatTimerMMSS(sleepCd)
                 : isDaytimeTooFresh
                 ? 'Segar (>85)'
                 : isDaytimeBriefOnly && opt.id === 'full_rest'
@@ -1627,31 +1700,34 @@ export const GameHud: React.FC<GameHudProps> = ({
               draggable={false}
             />
           </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveMenu(null);
-              onToggleShop();
-            }}
-            aria-label="Toko"
-            title="Toko"
-            className={`w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center hover:-translate-y-1.5 hover:scale-105 active:translate-y-0 transition-transform cursor-pointer ${
-              shopOpen ? '-translate-y-2 short:-translate-y-1 scale-110' : ''
-            }`}
-          >
-            <img
-              src="/assets/ui/icon_shop.png"
-              alt="Toko"
-              className={`w-full h-full object-contain ${
-                shopOpen
-                  ? 'drop-shadow-[0_0_10px_rgba(251,191,36,0.95)]'
-                  : 'drop-shadow-[0_4px_4px_rgba(0,0,0,0.28)]'
-              }`}
-              draggable={false}
-            />
-          </button>
         </div>
+
+        {/* Bottom-Right: Shop Button */}
+        <button
+          type="button"
+          data-ui-id="hud-shop-btn"
+          data-ui-label="Tombol Toko"
+          onClick={() => {
+            setActiveMenu(null);
+            onToggleShop();
+          }}
+          aria-label="Toko"
+          title="Toko"
+          className={`pointer-events-auto absolute right-0 bottom-0 w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center hover:-translate-y-1.5 hover:scale-105 active:translate-y-0 transition-transform cursor-pointer ${
+            shopOpen ? '-translate-y-2 short:-translate-y-1 scale-110' : ''
+          }`}
+        >
+          <img
+            src="/assets/ui/icon_shop.png"
+            alt="Toko"
+            className={`w-full h-full object-contain ${
+              shopOpen
+                ? 'drop-shadow-[0_0_10px_rgba(251,191,36,0.95)]'
+                : 'drop-shadow-[0_4px_4px_rgba(0,0,0,0.28)]'
+            }`}
+            draggable={false}
+          />
+        </button>
       </div>
     </div>
   );

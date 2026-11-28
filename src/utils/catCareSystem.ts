@@ -206,12 +206,21 @@ export function getWeatherMultipliers(weather: WeatherType): WeatherMultipliers 
   };
 }
 
+export function isLateNightDrowsyHour(gameHour: number): boolean {
+  const norm = ((gameHour % 24) + 24) % 24;
+  return norm >= 1 && norm < 6;
+}
+
 export function getDrowsyStage(
   energy: number,
   dayPhase: DayPhase = 'pagi',
-  weather: WeatherType = 'cerah'
+  weather: WeatherType = 'cerah',
+  gameHour?: number
 ): DrowsyStage {
   if (energy <= 0) return 'exhausted';
+  if (typeof gameHour === 'number' && isLateNightDrowsyHour(gameHour)) {
+    return 'drowsy_heavy';
+  }
   if (energy <= 20) return 'drowsy_heavy';
   const lightThreshold = Math.max(
     dayPhase === 'malam' ? 50 : 40,
@@ -452,9 +461,21 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
             cleanlinessDelta: AUTO_SLEEP_CONFIG.cleanlinessDelta,
           }
         : undefined;
+    const sleepRateMult = isLateNightDrowsyHour(gameHour) ? 3 : 1;
     const sleepSliceCap =
-      activeSleepMeta && sleepRemainingSec > 0 ? sleepRemainingSec : Number.POSITIVE_INFINITY;
-    const step = Math.min(remaining, Math.max(1, timeLeftInStage), sleepSliceCap, 300);
+      activeSleepMeta && sleepRemainingSec > 0
+        ? sleepRemainingSec / sleepRateMult
+        : Number.POSITIVE_INFINITY;
+    const hoursToNightBoundary =
+      gameHour < 1 ? 1 - gameHour : gameHour < 6 ? 6 - gameHour : 25 - gameHour;
+    const secToNightBoundary = Math.max(1, hoursToNightBoundary / GAME_HOURS_PER_REAL_SEC);
+    const step = Math.min(
+      remaining,
+      Math.max(1, timeLeftInStage),
+      sleepSliceCap,
+      secToNightBoundary,
+      300
+    );
 
     const dayPhase = getDayPhaseFromHour(gameHour);
     const phaseMult = getDayPhaseMultipliers(dayPhase);
@@ -462,6 +483,7 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
     const rates = getStageDecayRatesPerSec(stage, stageElapsed, branch, input.hungerSpeed);
     const prevHunger = hunger;
 
+    const isSleepingOffline = Boolean(activeSleepMeta && sleepRemainingSec > 0);
     if (activeSleepMeta && sleepRemainingSec > 0) {
       const dur = Math.max(1, sleepDurationSec || activeSleepMeta.durationSec);
       const tEnergy = sleepTargetEnergy > 0 ? sleepTargetEnergy : activeSleepMeta.energyDelta;
@@ -469,10 +491,11 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
       const tHunger = sleepTargetHunger < 0 ? sleepTargetHunger : activeSleepMeta.hungerDelta;
       const tClean = sleepTargetClean < 0 ? sleepTargetClean : activeSleepMeta.cleanlinessDelta;
 
-      const eGain = (tEnergy / dur) * step;
-      const hGain = (tHappy / dur) * step;
-      const hunDelta = (tHunger / dur) * step;
-      const clnDelta = (tClean / dur) * step;
+      const sleepStep = Math.min(sleepRemainingSec, step * sleepRateMult);
+      const eGain = (tEnergy / dur) * sleepStep;
+      const hGain = (tHappy / dur) * sleepStep;
+      const hunDelta = (tHunger / dur) * sleepStep;
+      const clnDelta = (tClean / dur) * sleepStep;
       energy = clamp(energy + eGain, 0, 100);
       happiness = clamp(happiness + hGain, 0, 100);
       hunger = clamp(hunger + hunDelta, 0, 100);
@@ -486,7 +509,7 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
         0,
         100
       );
-      sleepRemainingSec = Math.max(0, sleepRemainingSec - step);
+      sleepRemainingSec = Math.max(0, sleepRemainingSec - sleepStep);
       if (sleepRemainingSec <= 0.01) {
         const remE = Math.max(0, tEnergy - sleepAppliedEnergy);
         const remH = Math.max(0, tHappy - sleepAppliedHappy);
@@ -496,12 +519,7 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
         happiness = clamp(happiness + remH, 0, 100);
         hunger = clamp(hunger + remHun, 0, 100);
         cleanliness = clamp(cleanliness + remCln, 0, 100);
-        if (activeSleepMeta.cooldownAfterWakeSec > 0) {
-          sleepCooldownUntil = Math.max(
-            sleepCooldownUntil,
-            simClockMs + step * 1000 + activeSleepMeta.cooldownAfterWakeSec * 1000
-          );
-        }
+        sleepCooldownUntil = 0;
         sleepMode = 'none';
         sleepRemainingSec = 0;
         sleepDurationSec = 0;
@@ -539,9 +557,10 @@ export function calculateOfflineDecay(input: OfflineDecayInput): OfflineDecayRes
       );
     }
 
-    // Health penalty / recovery during absence
+    // Health penalty / recovery during absence (2x faster recovery while sleeping on bed)
     if (isRecovering) {
-      health = clamp(health + step * HEALTH_RECOVERY_PER_REAL_SEC, 0, 100);
+      const bedRecoveryMult = isSleepingOffline ? 2 : 1;
+      health = clamp(health + step * HEALTH_RECOVERY_PER_REAL_SEC * bedRecoveryMult, 0, 100);
       if (health >= SICK_SYMPTOM_CLEAR_HEALTH) {
         isSick = false;
       }

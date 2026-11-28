@@ -4,6 +4,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { FirebaseError } from 'firebase/app';
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+  type User,
+} from 'firebase/auth';
 import { RotateCw } from 'lucide-react';
 import { soundEngine } from './audio/soundEngine';
 import { DevTestingPanel } from './components/DevTestingPanel';
@@ -13,7 +20,7 @@ import { MiniGameModal } from './components/MiniGameModal';
 import { OpeningSplash } from './components/OpeningSplash';
 import { AutoSaveStatus, PauseAndEndModal } from './components/PauseAndEndModal';
 import { ShopDrawer } from './components/ShopDrawer';
-import { TitleScreen } from './components/TitleScreen';
+import { CloudSyncStatus, TitleScreen } from './components/TitleScreen';
 import { UiEditorTool } from './components/UiEditorTool';
 import { CatStageCanvas, CatStageHandle } from './game/CatStageCanvas';
 import {
@@ -40,16 +47,25 @@ import {
   SETTINGS_STORAGE_KEY,
   ToolMode,
 } from './types/game';
+import { auth, googleProvider } from './firebase';
 import {
   clearLowHungerNotificationSchedule,
   getCareNotificationPermission,
   requestCareNotificationPermission,
 } from './utils/catCareSystem';
+import { deleteCloudSave, loadCloudSave, saveCloudSave } from './utils/cloudSave';
 import {
+  hideNativeAndroidSystemBars,
   isFullscreenActive,
+  isNativeAndroidWrapper,
   isTouchOrAndroid,
+  lockLandscapeOrientation,
   requestImmersiveFullscreen,
 } from './utils/fullscreen';
+
+const SHOW_DEV_TESTING_PANEL = true;
+const SHOW_UI_EDITOR_TOOL = false;
+const SHOW_LIFE_STAGE_MODAL = false;
 
 const INITIAL_HUD: CatHudSnapshot = {
   name: 'Oren',
@@ -162,6 +178,25 @@ function checkTouchPortrait(): boolean {
   return (isCoarse || isAndroidUa) && window.innerHeight > window.innerWidth;
 }
 
+function formatCloudErrorMessage(err: unknown): string {
+  if (err instanceof FirebaseError) {
+    if (
+      err.code === 'auth/popup-closed-by-user' ||
+      err.code === 'auth/cancelled-popup-request'
+    ) {
+      return '';
+    }
+    if (err.code === 'auth/popup-blocked') {
+      return 'Popup login Google diblokir browser. Izinkan popup lalu coba lagi.';
+    }
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('Quota exceeded')) {
+    return 'Kuota harian layanan Cloud Save telah tercapai dan akan direset besok.';
+  }
+  return 'Gagal menyinkronkan Cloud Save. Periksa koneksi internetmu.';
+}
+
 export default function App() {
   const stageRef = useRef<CatStageHandle | null>(null);
   const [openingDone, setOpeningDone] = useState(false);
@@ -188,27 +223,192 @@ export default function App() {
   });
   const [hud, setHud] = useState<CatHudSnapshot>(INITIAL_HUD);
   const [existingSave, setExistingSave] = useState<SaveData | null>(() => readSavedCat());
+  const [authReady, setAuthReady] = useState(false);
+  const [googleUser, setGoogleUser] = useState<User | null>(null);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>('idle');
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const googleUserRef = useRef<User | null>(null);
+  const gameStateRef = useRef<GameState>(gameState);
+  const cloudDocExistsRef = useRef<boolean | undefined>(undefined);
+  const lastCloudSyncAtRef = useRef<number>(0);
+  const linkingInFlightRef = useRef<boolean>(false);
 
-  const persistProgress = useCallback(() => {
-    if (!stageRef.current) return;
-    if (saveTimerRef.current.settle) window.clearTimeout(saveTimerRef.current.settle);
-    if (saveTimerRef.current.clear) window.clearTimeout(saveTimerRef.current.clear);
-    setAutoSaveStatus('saving');
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
+
+  const syncSaveToCloud = useCallback(async (uid: string, data: SaveData) => {
+    setCloudSyncStatus('syncing');
     try {
-      const data = stageRef.current.getSaveData();
-      localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(data));
-      setExistingSave(data);
-      setLastSavedAt(Date.now());
-      saveTimerRef.current.settle = window.setTimeout(() => {
-        setAutoSaveStatus('saved');
-        saveTimerRef.current.clear = window.setTimeout(() => {
-          setAutoSaveStatus('idle');
-        }, 2200);
-      }, 280);
-    } catch {
-      setAutoSaveStatus('idle');
+      await saveCloudSave(uid, data, cloudDocExistsRef.current);
+      cloudDocExistsRef.current = true;
+      lastCloudSyncAtRef.current = Date.now();
+      setCloudSyncStatus('synced');
+      setCloudError(null);
+    } catch (err) {
+      setCloudSyncStatus('error');
+      const msg = formatCloudErrorMessage(err);
+      if (msg) setCloudError(msg);
     }
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      googleUserRef.current = user;
+      setGoogleUser(user);
+
+      if (!user) {
+        cloudDocExistsRef.current = undefined;
+        setCloudSyncStatus('idle');
+        setAuthReady(true);
+        return;
+      }
+
+      if (linkingInFlightRef.current) {
+        setAuthReady(true);
+        return;
+      }
+
+      setCloudSyncStatus('loading');
+      setCloudError(null);
+      void loadCloudSave(user.uid)
+        .then((res) => {
+          cloudDocExistsRef.current = res.exists;
+          if (res.save && gameStateRef.current === 'TITLE_MENU') {
+            try {
+              localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(res.save));
+            } catch {
+              // Ignore storage quota errors
+            }
+            setExistingSave(res.save);
+          }
+          setCloudSyncStatus('synced');
+          setAuthReady(true);
+        })
+        .catch((err) => {
+          setCloudSyncStatus('error');
+          const msg = formatCloudErrorMessage(err);
+          if (msg) setCloudError(msg);
+          setAuthReady(true);
+        });
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLinkGoogle = useCallback(async () => {
+    setCloudError(null);
+    setCloudSyncStatus('loading');
+    linkingInFlightRef.current = true;
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      const user = cred.user;
+      googleUserRef.current = user;
+      setGoogleUser(user);
+
+      const res = await loadCloudSave(user.uid);
+      cloudDocExistsRef.current = res.exists;
+      if (res.save) {
+        try {
+          localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(res.save));
+        } catch {
+          // Ignore
+        }
+        setExistingSave(res.save);
+        setCloudSyncStatus('synced');
+      } else {
+        const localSave = readSavedCat();
+        if (localSave) {
+          await saveCloudSave(user.uid, localSave, false);
+          cloudDocExistsRef.current = true;
+          lastCloudSyncAtRef.current = Date.now();
+        }
+        setCloudSyncStatus('synced');
+      }
+    } catch (err) {
+      const msg = formatCloudErrorMessage(err);
+      if (msg) {
+        setCloudError(msg);
+        setCloudSyncStatus('error');
+      } else {
+        setCloudSyncStatus(googleUserRef.current ? 'synced' : 'idle');
+      }
+    } finally {
+      linkingInFlightRef.current = false;
+      setAuthReady(true);
+    }
+  }, []);
+
+  const handleUnlinkGoogle = useCallback(async () => {
+    setCloudError(null);
+    try {
+      await signOut(auth);
+      googleUserRef.current = null;
+      cloudDocExistsRef.current = undefined;
+      setGoogleUser(null);
+      setCloudSyncStatus('idle');
+    } catch (err) {
+      const msg = formatCloudErrorMessage(err);
+      if (msg) setCloudError(msg);
+    }
+  }, []);
+
+  const handleSyncFromCloud = useCallback(async () => {
+    const user = googleUserRef.current;
+    if (!user) return;
+    setCloudError(null);
+    setCloudSyncStatus('loading');
+    try {
+      const res = await loadCloudSave(user.uid);
+      cloudDocExistsRef.current = res.exists;
+      if (res.save) {
+        try {
+          localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(res.save));
+        } catch {
+          // Ignore
+        }
+        setExistingSave(res.save);
+      }
+      setCloudSyncStatus('synced');
+    } catch (err) {
+      setCloudSyncStatus('error');
+      const msg = formatCloudErrorMessage(err);
+      if (msg) setCloudError(msg);
+    }
+  }, []);
+
+  const persistProgress = useCallback(
+    (forceCloud = true) => {
+      if (!stageRef.current) return;
+      if (saveTimerRef.current.settle) window.clearTimeout(saveTimerRef.current.settle);
+      if (saveTimerRef.current.clear) window.clearTimeout(saveTimerRef.current.clear);
+      setAutoSaveStatus('saving');
+      try {
+        const data = stageRef.current.getSaveData();
+        localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(data));
+        setExistingSave(data);
+        setLastSavedAt(Date.now());
+
+        const activeUser = googleUserRef.current;
+        if (
+          activeUser &&
+          (forceCloud || Date.now() - lastCloudSyncAtRef.current >= 15000)
+        ) {
+          void syncSaveToCloud(activeUser.uid, data);
+        }
+
+        saveTimerRef.current.settle = window.setTimeout(() => {
+          setAutoSaveStatus('saved');
+          saveTimerRef.current.clear = window.setTimeout(() => {
+            setAutoSaveStatus('idle');
+          }, 2200);
+        }, 280);
+      } catch {
+        setAutoSaveStatus('idle');
+      }
+    },
+    [syncSaveToCloud]
+  );
 
   const handleUpdateSettings = useCallback((patch: Partial<GameSettings>) => {
     setSettings((prev) => {
@@ -241,22 +441,36 @@ export default function App() {
       // Ignore
     }
     setExistingSave(null);
+    const activeUser = googleUserRef.current;
+    if (activeUser && cloudDocExistsRef.current !== false) {
+      void deleteCloudSave(activeUser.uid)
+        .then(() => {
+          cloudDocExistsRef.current = false;
+        })
+        .catch(() => {
+          // Ignore delete errors on clear
+        });
+    }
   }, []);
 
-  const handleStartNew = useCallback((name: string, breed: CatBreed) => {
-    soundEngine.unlock();
-    if (isTouchOrAndroid()) {
-      void requestImmersiveFullscreen();
-    }
-    if (getCareNotificationPermission() === 'default') {
-      void requestCareNotificationPermission();
-    }
-    stageRef.current?.resetCat(name, breed);
-    setToolMode('PET');
-    setShopOpen(false);
-    setGameState('PLAYING');
-    soundEngine.playMeow(1.05);
-  }, []);
+  const handleStartNew = useCallback(
+    (name: string, breed: CatBreed) => {
+      soundEngine.unlock();
+      if (isTouchOrAndroid()) {
+        void requestImmersiveFullscreen();
+      }
+      if (getCareNotificationPermission() === 'default') {
+        void requestCareNotificationPermission();
+      }
+      stageRef.current?.resetCat(name, breed);
+      setToolMode('PET');
+      setShopOpen(false);
+      setGameState('PLAYING');
+      soundEngine.playMeow(1.05);
+      persistProgress(true);
+    },
+    [persistProgress]
+  );
 
   const handleContinueSave = useCallback(() => {
     if (!existingSave) return;
@@ -297,7 +511,7 @@ export default function App() {
     (foodId: FoodItemId) => {
       setToolMode('PET');
       if (stageRef.current?.feedItem(foodId)) {
-        persistProgress();
+        persistProgress(true);
       }
     },
     [persistProgress]
@@ -307,7 +521,7 @@ export default function App() {
     (foodId: Exclude<FoodItemId, 'snack'>, useImmediately = false) => {
       setToolMode('PET');
       if (stageRef.current?.buyFoodItem(foodId, useImmediately)) {
-        persistProgress();
+        persistProgress(true);
       }
     },
     [persistProgress]
@@ -467,6 +681,16 @@ export default function App() {
     } catch {
       // Ignore
     }
+    const activeUser = googleUserRef.current;
+    if (activeUser && cloudDocExistsRef.current !== false) {
+      void deleteCloudSave(activeUser.uid)
+        .then(() => {
+          cloudDocExistsRef.current = false;
+        })
+        .catch(() => {
+          // Ignore
+        });
+    }
   }, []);
 
   const handleRestartSameCat = useCallback(() => {
@@ -479,11 +703,12 @@ export default function App() {
     setDevTimeScale(1);
     setGameState('PLAYING');
     soundEngine.playMeow(1.05);
-  }, [hud.name, hud.breed]);
+    persistProgress(true);
+  }, [hud.name, hud.breed, persistProgress]);
 
   const handleReturnToTitle = useCallback(() => {
     if (gameState !== 'GAME_OVER') {
-      persistProgress();
+      persistProgress(true);
     }
     setShopOpen(false);
     setLifeStageOpen(false);
@@ -524,49 +749,73 @@ export default function App() {
   }, [hud.weather, gameState, openingDone, appClosed]);
 
   useEffect(() => {
-    const tryLockLandscape = () => {
-      const orient = screen.orientation as
-        | (ScreenOrientation & { lock?: (orientation: string) => Promise<void> })
-        | undefined;
-      orient?.lock?.('landscape')?.catch(() => {});
+    const syncOrientationAndBars = () => {
+      lockLandscapeOrientation();
+      if (isTouchOrAndroid() || isNativeAndroidWrapper()) {
+        hideNativeAndroidSystemBars();
+      }
       setIsTouchPortrait(checkTouchPortrait());
     };
-    tryLockLandscape();
-    if (isTouchOrAndroid()) {
+
+    syncOrientationAndBars();
+    if (isTouchOrAndroid() || isNativeAndroidWrapper()) {
       void requestImmersiveFullscreen();
     }
-    window.addEventListener('resize', tryLockLandscape);
-    window.addEventListener('orientationchange', tryLockLandscape);
-    const handleFirstGesture = () => {
-      soundEngine.unlock();
-      if (isTouchOrAndroid() && !isFullscreenActive()) {
-        void requestImmersiveFullscreen();
-      } else {
-        tryLockLandscape();
+
+    const handleVisibilityResume = () => {
+      if (document.visibilityState === 'visible') {
+        syncOrientationAndBars();
+        if (isNativeAndroidWrapper()) {
+          void requestImmersiveFullscreen();
+        }
       }
     };
-    window.addEventListener('pointerdown', handleFirstGesture, { passive: true });
-    window.addEventListener('keydown', handleFirstGesture, { passive: true });
+
+    const handleUserGesture = () => {
+      if ((isTouchOrAndroid() || isNativeAndroidWrapper()) && !isFullscreenActive()) {
+        void requestImmersiveFullscreen();
+      } else {
+        syncOrientationAndBars();
+      }
+      soundEngine.unlock();
+    };
+
+    window.addEventListener('resize', syncOrientationAndBars);
+    window.addEventListener('orientationchange', syncOrientationAndBars);
+    window.addEventListener('focus', syncOrientationAndBars);
+    document.addEventListener('visibilitychange', handleVisibilityResume);
+    document.addEventListener('fullscreenchange', syncOrientationAndBars);
+    document.addEventListener('webkitfullscreenchange', syncOrientationAndBars);
+    window.addEventListener('touchend', handleUserGesture, { capture: true, passive: true });
+    window.addEventListener('pointerup', handleUserGesture, { capture: true, passive: true });
+    window.addEventListener('click', handleUserGesture, { capture: true, passive: true });
+    window.addEventListener('keydown', handleUserGesture, { capture: true, passive: true });
     return () => {
-      window.removeEventListener('resize', tryLockLandscape);
-      window.removeEventListener('orientationchange', tryLockLandscape);
-      window.removeEventListener('pointerdown', handleFirstGesture);
-      window.removeEventListener('keydown', handleFirstGesture);
+      window.removeEventListener('resize', syncOrientationAndBars);
+      window.removeEventListener('orientationchange', syncOrientationAndBars);
+      window.removeEventListener('focus', syncOrientationAndBars);
+      document.removeEventListener('visibilitychange', handleVisibilityResume);
+      document.removeEventListener('fullscreenchange', syncOrientationAndBars);
+      document.removeEventListener('webkitfullscreenchange', syncOrientationAndBars);
+      window.removeEventListener('touchend', handleUserGesture, true);
+      window.removeEventListener('pointerup', handleUserGesture, true);
+      window.removeEventListener('click', handleUserGesture, true);
+      window.removeEventListener('keydown', handleUserGesture, true);
     };
   }, []);
 
   useEffect(() => {
     if (gameState !== 'PLAYING') return;
     const id = window.setInterval(() => {
-      persistProgress();
+      persistProgress(false);
     }, 5000);
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        persistProgress();
+        persistProgress(true);
       }
     };
     const handleUnload = () => {
-      persistProgress();
+      persistProgress(true);
     };
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('pagehide', handleUnload);
@@ -595,7 +844,7 @@ export default function App() {
         } else if (devPanelOpen) {
           setDevPanelOpen(false);
         } else if (gameState === 'PLAYING') {
-          persistProgress();
+          persistProgress(true);
           setGameState('PAUSED');
         } else {
           setGameState('PLAYING');
@@ -674,7 +923,7 @@ export default function App() {
         onGameOver={handleGameOver}
         onToySessionEnd={() => setToolMode((prev) => (prev === 'TOY' ? 'PET' : prev))}
         onBatheComplete={() => setToolMode((prev) => (prev === 'BRUSH' ? 'PET' : prev))}
-        onAutoSaveNeeded={persistProgress}
+        onAutoSaveNeeded={() => persistProgress(false)}
       />
 
       {gameState === 'TITLE_MENU' && !appClosed && (
@@ -688,6 +937,14 @@ export default function App() {
           onStartNew={handleStartNew}
           onContinueSave={handleContinueSave}
           onQuitApp={handleQuitApp}
+          authReady={authReady}
+          googleUser={googleUser}
+          cloudSyncStatus={cloudSyncStatus}
+          cloudError={cloudError}
+          onLinkGoogle={() => void handleLinkGoogle()}
+          onUnlinkGoogle={() => void handleUnlinkGoogle()}
+          onSyncFromCloud={() => void handleSyncFromCloud()}
+          onDismissCloudError={() => setCloudError(null)}
         />
       )}
 
@@ -706,10 +963,10 @@ export default function App() {
             onPetCat={handlePetCat}
             onGiveMedicine={handleGiveMedicine}
             onToggleShop={() => setShopOpen((prev) => !prev)}
-            onOpenLifeStage={() => setLifeStageOpen(true)}
+            onOpenLifeStage={SHOW_LIFE_STAGE_MODAL ? () => setLifeStageOpen(true) : undefined}
             onOpenMiniGame={handleOpenMiniGame}
             onPause={() => {
-              persistProgress();
+              persistProgress(true);
               setGameState('PAUSED');
             }}
           />
@@ -728,11 +985,13 @@ export default function App() {
             onSelectAccessory={handleSelectAccessory}
             onUnequipAllAccessories={handleUnequipAllAccessories}
           />
-          <LifeStageModal
-            open={lifeStageOpen}
-            hud={hud}
-            onClose={() => setLifeStageOpen(false)}
-          />
+          {SHOW_LIFE_STAGE_MODAL && (
+            <LifeStageModal
+              open={lifeStageOpen}
+              hud={hud}
+              onClose={() => setLifeStageOpen(false)}
+            />
+          )}
           <MiniGameModal
             open={miniGameOpen}
             catName={hud.name}
@@ -741,17 +1000,19 @@ export default function App() {
             onClose={() => setMiniGameOpen(false)}
             onComplete={handleMiniGameComplete}
           />
-          <DevTestingPanel
-            open={devPanelOpen}
-            onToggleOpen={() => setDevPanelOpen((prev) => !prev)}
-            hud={hud}
-            devTimeScale={devTimeScale}
-            onChangeTimeScale={setDevTimeScale}
-            onPatchState={handleDevPatchState}
-            onQuickAction={handleDevQuickAction}
-            onStartSleep={handleStartSleep}
-            onSaveNow={persistProgress}
-          />
+          {SHOW_DEV_TESTING_PANEL && (
+            <DevTestingPanel
+              open={devPanelOpen}
+              onToggleOpen={() => setDevPanelOpen((prev) => !prev)}
+              hud={hud}
+              devTimeScale={devTimeScale}
+              onChangeTimeScale={setDevTimeScale}
+              onPatchState={handleDevPatchState}
+              onQuickAction={handleDevQuickAction}
+              onStartSleep={handleStartSleep}
+              onSaveNow={() => persistProgress(true)}
+            />
+          )}
         </>
       )}
 
@@ -761,13 +1022,16 @@ export default function App() {
         settings={settings}
         autoSaveStatus={autoSaveStatus}
         lastSavedAt={lastSavedAt}
+        cloudLinked={Boolean(googleUser)}
         onResume={() => setGameState('PLAYING')}
         onUpdateSettings={handleUpdateSettings}
         onRestartSameCat={handleRestartSameCat}
         onReturnToTitle={handleReturnToTitle}
       />
 
-      {openingDone && !appClosed && <UiEditorTool gameState={gameState} />}
+      {SHOW_UI_EDITOR_TOOL && openingDone && !appClosed && (
+        <UiEditorTool gameState={gameState} />
+      )}
 
       {!openingDone && !appClosed && (
         <OpeningSplash onFinish={() => setOpeningDone(true)} />

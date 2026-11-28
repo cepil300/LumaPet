@@ -82,6 +82,7 @@ export interface CatRenderState {
   dragTime?: number;
   sleepingBed?: CatBedId;
   sleepingBedDragging?: boolean;
+  sleepSpriteCol?: number;
 }
 
 export interface BowlRenderState {
@@ -89,6 +90,7 @@ export interface BowlRenderState {
   ny: number;
   amount: number;
   treatType: BowlTreatType;
+  isDragging?: boolean;
 }
 
 export interface ToyRenderState {
@@ -105,17 +107,25 @@ export interface ToyRenderState {
 const CELL_W = 340;
 const CELL_H = 260;
 
+export function pickRandomSleepPoseCol(lifeStage?: LifeStage, prevCol?: number): number {
+  const isYoungStage = lifeStage === 'baby' || lifeStage === 'child';
+  const pool = isYoungStage ? [0, 1, 2, 3, 4] : [1, 2, 3, 4];
+  const candidates = prevCol !== undefined ? pool.filter((c) => c !== prevCol) : pool;
+  const list = candidates.length > 0 ? candidates : pool;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 function pickSpriteFrame(cat: CatRenderState): { row: number; col: number } {
-  // Slow down animation speed when sick or heavily drowsy (energy <= 20)
-  const isDrowsyHeavy = !cat.isSick && cat.energy <= 20;
+  // Slow down animation speed when sick or heavily drowsy
+  const isDrowsyHeavy =
+    !cat.isSick &&
+    (cat.drowsyStage
+      ? cat.drowsyStage === 'drowsy_heavy' || cat.drowsyStage === 'exhausted'
+      : cat.energy <= 20);
+  const isDrowsyLight =
+    !cat.isSick &&
+    (cat.drowsyStage ? cat.drowsyStage === 'drowsy_light' : cat.energy > 20 && cat.energy <= 40);
   const t = cat.isSick ? cat.animTime * 0.45 : isDrowsyHeavy ? cat.animTime * 0.56 : cat.animTime;
-
-  const isYoungStage = cat.lifeStage === 'baby' || cat.lifeStage === 'child';
-
-  if (cat.isSick && cat.behavior === 'SLEEPING') {
-    const sickSleepFrames = isYoungStage ? [2, 2, 0, 1, 3, 4, 3, 1] : [2, 2, 1, 3, 4, 3];
-    return { row: 3, col: sickSleepFrames[Math.floor(t * 0.65) % sickSleepFrames.length] };
-  }
 
   switch (cat.behavior) {
     case 'EATING': {
@@ -139,17 +149,21 @@ function pickSpriteFrame(cat: CatRenderState): { row: number; col: number } {
       }
       return { row: 2, col: Math.floor(t * 6.5) % 6 };
     }
-    case 'SLEEPING': {
-      const sleepFrames = isYoungStage
-        ? [2, 2, 2, 0, 0, 1, 3, 4, 3, 1, 0, 0]
-        : [2, 2, 2, 1, 3, 4, 3, 1, 3, 4, 2, 2];
-      return { row: 3, col: sleepFrames[Math.floor(t * 0.72) % sleepFrames.length] };
+    case 'SLEEPING':
+    case 'DOZING': {
+      return { row: 3, col: cat.sleepSpriteCol ?? 2 };
     }
     case 'ROLLING': {
       return { row: 7, col: Math.floor(t * 2.4) % 4 };
     }
     case 'WALKING': {
-      const walkSpeed = cat.isSick ? 2.6 : cat.energy <= 20 ? 3.5 : cat.hunger <= 12 ? 4.8 : 7.2;
+      const walkSpeed = cat.isSick
+        ? 2.6
+        : isDrowsyHeavy
+        ? 3.5
+        : cat.hunger <= 12
+        ? 4.8
+        : 7.2;
       return { row: 5, col: Math.floor(t * walkSpeed) % 5 };
     }
     case 'STRETCHING': {
@@ -159,6 +173,13 @@ function pickSpriteFrame(cat: CatRenderState): { row: number; col: number } {
     default: {
       if (cat.isSick) {
         return { row: 4, col: 0 };
+      }
+      if (isDrowsyHeavy) {
+        return { row: 4, col: 0 };
+      }
+      if (isDrowsyLight) {
+        const drowsySeq = [0, 0, 1, 0];
+        return { row: 4, col: drowsySeq[Math.floor(t * 1.3) % drowsySeq.length] };
       }
       if (cat.isHungry) {
         const hungrySeq = [2, 3, 3, 4, 2, 3];
@@ -453,119 +474,326 @@ export function drawFoodBowl(
 ): void {
   const pos = roomToScreen(bowl.nx, bowl.ny, rt);
   const s = Math.max(0.55, rt.scale * 0.92);
+  const isDragging = Boolean(bowl.isDragging);
+  const liftY = isDragging ? 11 * s : 0;
 
   ctx.save();
-  ctx.translate(pos.x, pos.y);
-  ctx.scale(s, s);
 
-  ctx.fillStyle = 'rgba(38, 30, 22, 0.18)';
-  ctx.beginPath();
-  ctx.ellipse(0, 12, 36, 11, 0, 0, Math.PI * 2);
+  if (isDragging) {
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+    ctx.fillStyle = 'rgba(38, 30, 22, 0.22)';
+    ctx.lineWidth = 2.2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 13 * s, 44 * s, 14 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else {
+    ctx.fillStyle = 'rgba(38, 30, 22, 0.20)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 13 * s, 38 * s, 11.5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const scaleMult = isDragging ? 1.08 : 1.0;
+  ctx.translate(pos.x, pos.y - liftY);
+  ctx.scale(s * scaleMult, s * scaleMult);
+
+  const outline = '#241219';
+  const bodyOrange = '#EB6B11';
+  const bodyHighlight = '#F68D2E';
+  const bodyShadow = '#C84E0A';
+  const creamWhite = '#FFFDF7';
+  const creamShade = '#EDE3D4';
+
+  // Helper path for flared trapezoidal-rounded bowl silhouette (matches taskbar icon)
+  const traceBowlOuter = () => {
+    ctx.beginPath();
+    ctx.moveTo(-29, -8);
+    ctx.bezierCurveTo(-32, -2, -35, 4, -35, 8);
+    ctx.bezierCurveTo(-35, 15.5, -18, 18.5, 0, 18.5);
+    ctx.bezierCurveTo(18, 18.5, 35, 15.5, 35, 8);
+    ctx.bezierCurveTo(35, 4, 32, -2, 29, -8);
+    ctx.closePath();
+  };
+
+  // Main orange bowl body with warm directional shading
+  traceBowlOuter();
+  const bodyGrad = ctx.createLinearGradient(-34, -8, 34, 14);
+  bodyGrad.addColorStop(0, bodyHighlight);
+  bodyGrad.addColorStop(0.28, bodyOrange);
+  bodyGrad.addColorStop(0.82, bodyOrange);
+  bodyGrad.addColorStop(1, bodyShadow);
+  ctx.fillStyle = bodyGrad;
   ctx.fill();
 
-  ctx.fillStyle = '#EAE6DF';
-  ctx.strokeStyle = '#312924';
-  ctx.lineWidth = 2.4;
+  // Clip inside bowl body for crisp white bottom trim band & front fish badge
+  ctx.save();
+  traceBowlOuter();
+  ctx.clip();
+
+  // Left glossy orange highlight strip
+  ctx.fillStyle = 'rgba(255, 220, 165, 0.28)';
   ctx.beginPath();
-  ctx.moveTo(-32, -3);
-  ctx.bezierCurveTo(-30, 16, 30, 16, 32, -3);
-  ctx.lineTo(27, -9);
-  ctx.lineTo(-27, -9);
+  ctx.ellipse(-22, 3, 4.5, 9, -0.18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Cream-white lower trim band (wrapping along the bottom curve like the taskbar bowl)
+  ctx.fillStyle = creamWhite;
+  ctx.beginPath();
+  ctx.moveTo(-37, 6.2);
+  ctx.bezierCurveTo(-22, 11.8, 22, 11.8, 37, 6.2);
+  ctx.lineTo(37, 10.6);
+  ctx.bezierCurveTo(22, 16.2, -22, 16.2, -37, 10.6);
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle shading on right edge of white bottom trim
+  ctx.fillStyle = creamShade;
+  ctx.fillRect(18, 6, 19, 11);
+
+  // Dark crisp seam below white bottom band (orange base lip below the white stripe)
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-36, 10.6);
+  ctx.bezierCurveTo(-22, 16.2, 22, 16.2, 36, 10.6);
+  ctx.stroke();
+
+  // Front centered white rounded rectangular badge
+  const bx = -13.5;
+  const by = -1.2;
+  const bw = 27;
+  const bh = 12.2;
+  const br = 3.2;
+  ctx.fillStyle = creamWhite;
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(bx + br, by);
+  ctx.lineTo(bx + bw - br, by);
+  ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + br);
+  ctx.lineTo(bx + bw, by + bh - br);
+  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - br, by + bh);
+  ctx.lineTo(bx + br, by + bh);
+  ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - br);
+  ctx.lineTo(bx, by + br);
+  ctx.quadraticCurveTo(bx, by, bx + br, by);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = bowl.treatType === 'milk' ? '#60A5FA' : '#E88B38';
+  // Cute orange fish emblem centered inside the white badge
+  ctx.fillStyle = bodyOrange;
   ctx.beginPath();
-  ctx.rect(-26, -1, 52, 5);
+  ctx.ellipse(-1.4, by + bh * 0.5, 5.2, 3.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Fish tail fin on the right
+  ctx.beginPath();
+  ctx.moveTo(2.8, by + bh * 0.5);
+  ctx.lineTo(7.4, by + bh * 0.5 - 2.9);
+  ctx.lineTo(7.4, by + bh * 0.5 + 2.9);
+  ctx.closePath();
+  ctx.fill();
+  // Tiny cream fish eye dot
+  ctx.fillStyle = creamWhite;
+  ctx.beginPath();
+  ctx.arc(-4.0, by + bh * 0.5 - 0.6, 0.9, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = '#F7F4EE';
+  ctx.restore();
+
+  // Crisp outer stroke of the bowl body
+  traceBowlOuter();
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Cream-white upper rim ellipse
+  ctx.fillStyle = creamWhite;
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 2.4;
   ctx.beginPath();
-  ctx.ellipse(0, -8, 30, 9, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, -8.5, 29.5, 8.6, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = '#CFC6B8';
+  // Dark roasted interior bowl cavity
+  ctx.fillStyle = '#522614';
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1.9;
   ctx.beginPath();
-  ctx.ellipse(0, -8, 25, 6.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, -8.5, 24.8, 6.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Deeper shadow inside empty cavity
+  ctx.fillStyle = '#3B190C';
+  ctx.beginPath();
+  ctx.ellipse(0, -7.8, 21.5, 4.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   if (bowl.amount > 0.02) {
     const moundScale = 0.45 + 0.55 * bowl.amount;
     ctx.save();
-    ctx.translate(0, -7);
+    ctx.translate(0, -8.2);
 
     if (bowl.treatType === 'milk') {
-      // Creamy warm milk pool
+      // Creamy warm milk pool inside orange fish-badge bowl
+      const milkScale = Math.min(1, 0.52 + 0.48 * bowl.amount);
       ctx.fillStyle = '#FFFFFF';
       ctx.beginPath();
-      ctx.ellipse(0, -1, 24 * Math.min(1, 0.5 + 0.5 * bowl.amount), 6 * Math.min(1, 0.5 + 0.5 * bowl.amount), 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -0.3, 23.5 * milkScale, 5.6 * milkScale, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#E0F2FE';
       ctx.beginPath();
-      ctx.ellipse(-6, -2, 6, 1.8, 0, 0, Math.PI * 2);
+      ctx.ellipse(-6, -1.5, 6.5 * milkScale, 1.6 * milkScale, 0, 0, Math.PI * 2);
       ctx.fill();
     } else if (bowl.treatType === 'salmon' || bowl.treatType === 'special_food') {
+      // Rich kibble base + silver-blue fish & salmon chunks like taskbar icon
       ctx.scale(moundScale, moundScale);
-      ctx.fillStyle = '#F2795A';
-      ctx.strokeStyle = '#312924';
+      // Warm golden-brown kibble mound base
+      ctx.fillStyle = '#B8662B';
+      ctx.strokeStyle = outline;
       ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.ellipse(-6, -2, 13, 6.5, -0.2, 0, Math.PI * 2);
+      ctx.moveTo(-22, 1.5);
+      ctx.quadraticCurveTo(-18, -8, -4, -9.5);
+      ctx.quadraticCurveTo(6, -10.5, 16, -6);
+      ctx.quadraticCurveTo(22, -2, 22, 1.5);
+      ctx.quadraticCurveTo(0, 5.2, -22, 1.5);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+
+      // Kibble texture dots
+      ctx.fillStyle = '#D98943';
+      for (const [kx, ky] of [
+        [-11, -2],
+        [-3, -5],
+        [4, -3],
+        [-7, 1],
+      ]) {
+        ctx.beginPath();
+        ctx.arc(kx, ky, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Cute blue-silver fish sticking out on the right (matching taskbar icon!)
+      ctx.save();
+      ctx.translate(10, -4.5);
+      ctx.rotate(-0.68);
+      ctx.fillStyle = '#8DBCD0';
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1.7;
+      // Tail fin
       ctx.beginPath();
-      ctx.ellipse(7, -1, 11.5, 5.8, 0.25, 0, Math.PI * 2);
+      ctx.moveTo(6.5, 0);
+      ctx.lineTo(12.5, -4.2);
+      ctx.lineTo(11.2, 0);
+      ctx.lineTo(12.5, 4.2);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      // White fat lines
-      ctx.strokeStyle = '#FFD6C9';
+      // Fish body
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 7.5, 4.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Fish scale stripes
+      ctx.strokeStyle = '#5F8EA4';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(-1, -2.5);
+      ctx.lineTo(-1, 2.5);
+      ctx.moveTo(2.5, -2.2);
+      ctx.lineTo(2.5, 2.2);
+      ctx.stroke();
+      // Fish eye
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.arc(-4.2, -0.6, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Small peeking fish head on the left side (like taskbar icon!)
+      ctx.save();
+      ctx.translate(-12, -2.2);
+      ctx.rotate(0.42);
+      ctx.fillStyle = '#8DBCD0';
+      ctx.strokeStyle = outline;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(-10, -4);
-      ctx.lineTo(-4, 1);
-      ctx.moveTo(4, -3);
-      ctx.lineTo(10, 1);
+      ctx.ellipse(0, 0, 4.6, 3.2, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.arc(-1.2, -0.6, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     } else if (bowl.treatType === 'catnip' || bowl.treatType === 'snack') {
       ctx.scale(moundScale, moundScale);
+      // Warm kibble base + crunchy biscuit treats
+      ctx.fillStyle = '#B8662B';
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      ctx.ellipse(0, -1, 19, 5.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
       const biscuits = [
-        [-9, -1],
-        [1, -3],
-        [10, 0],
-        [-3, 2],
+        [-9, -2.2],
+        [1, -4.0],
+        [10, -1.5],
+        [-2, 0.8],
       ];
-      biscuits.forEach(([bx, by], i) => {
-        ctx.fillStyle = i % 2 === 0 ? '#E8A45C' : '#F4C27F';
-        ctx.strokeStyle = '#312924';
+      biscuits.forEach(([bx2, by2], i) => {
+        ctx.fillStyle = i % 2 === 0 ? '#E89E52' : '#F4BE76';
+        ctx.strokeStyle = outline;
         ctx.lineWidth = 1.4;
         ctx.beginPath();
-        ctx.ellipse(bx, by, 6, 3.8, i * 0.35, 0, Math.PI * 2);
+        ctx.ellipse(bx2, by2, 5.5, 3.4, i * 0.35, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = '#2D6A4F';
-        ctx.beginPath();
-        ctx.arc(bx - 1, by, 1.3, 0, Math.PI * 2);
-        ctx.fill();
+        if (bowl.treatType === 'catnip') {
+          ctx.fillStyle = '#2D6A4F';
+          ctx.beginPath();
+          ctx.arc(bx2 - 0.8, by2, 1.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
       });
     } else {
+      // Standard kibble mound matching taskbar brown-orange pile
       ctx.scale(moundScale, moundScale);
+      ctx.fillStyle = '#A85B24';
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      ctx.moveTo(-21, 1.5);
+      ctx.quadraticCurveTo(-16, -7.2, 0, -8.5);
+      ctx.quadraticCurveTo(16, -7.2, 21, 1.5);
+      ctx.quadraticCurveTo(0, 4.8, -21, 1.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
       const nuggets = [
-        [-11, -1],
-        [-3, -4],
-        [6, -3],
-        [12, 0],
-        [-7, 2],
-        [2, 1],
-        [8, 2],
+        [-11, -1.2],
+        [-3, -4.4],
+        [6, -3.5],
+        [12, -0.5],
+        [-5, 1.2],
+        [3, 0.8],
       ];
       nuggets.forEach(([kx, ky], i) => {
-        ctx.fillStyle = i % 2 === 0 ? '#9C6234' : '#B57745';
-        ctx.strokeStyle = '#312924';
-        ctx.lineWidth = 1.4;
+        ctx.fillStyle = i % 2 === 0 ? '#C97A39' : '#DF914C';
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 1.3;
         ctx.beginPath();
-        ctx.ellipse(kx, ky, 5, 3.6, i * 0.4, 0, Math.PI * 2);
+        ctx.ellipse(kx, ky, 4.6, 3.1, i * 0.4, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       });
@@ -960,36 +1188,37 @@ export function drawCat(
   const isDrowsyLight =
     !cat.isSick &&
     (cat.drowsyStage ? cat.drowsyStage === 'drowsy_light' : cat.energy > 20 && cat.energy <= 40);
+  const isRestingPose = cat.behavior === 'SLEEPING' || cat.behavior === 'DOZING';
   // Slow weak breathing slump, heavy step, and gentle head nod when sick or drowsy
   const weakSwayY =
-    (cat.isSick || isDrowsyHeavy) && cat.behavior !== 'SLEEPING'
+    (cat.isSick || isDrowsyHeavy) && !isRestingPose
       ? Math.sin(cat.time * (cat.isSick ? 1.9 : 2.1)) * (cat.isSick ? 1.8 : 1.7) * s +
         (cat.behavior === 'WALKING'
           ? Math.abs(Math.sin(cat.time * 2.8)) * (cat.isSick ? 2.4 : 1.7) * s
           : 0)
-      : isDrowsyLight && cat.behavior !== 'SLEEPING'
+      : isDrowsyLight && !isRestingPose
       ? Math.sin(cat.time * 2.2) * 0.75 * s
       : 0;
   const rollTilt =
-    cat.behavior !== 'SLEEPING' && (cat.isSick || isDrowsyHeavy)
+    !isRestingPose && (cat.isSick || isDrowsyHeavy)
       ? cat.behavior === 'WALKING'
         ? Math.sin(cat.time * 2.8) * (cat.isSick ? 0.035 : 0.024)
         : Math.sin(cat.time * 1.9) * 0.028
       : 0;
   const sickDroopX =
-    cat.isSick && cat.behavior !== 'SLEEPING'
+    cat.isSick && !isRestingPose
       ? 1.035
-      : isDrowsyHeavy && cat.behavior !== 'SLEEPING'
+      : isDrowsyHeavy && !isRestingPose
       ? 1.022
       : 1;
   const sickDroopY =
-    cat.isSick && cat.behavior !== 'SLEEPING'
+    cat.isSick && !isRestingPose
       ? 0.935
-      : isDrowsyHeavy && cat.behavior !== 'SLEEPING'
+      : isDrowsyHeavy && !isRestingPose
       ? 0.956
       : 1;
   const rumbleScale =
-    cat.isHungry && cat.hunger <= 15 && cat.behavior !== 'EATING' && !cat.isSick
+    cat.isHungry && cat.hunger <= 15 && cat.behavior !== 'EATING' && !cat.isSick && !isRestingPose
       ? Math.sin(cat.time * 10) * 0.025
       : 0;
 
@@ -1055,21 +1284,7 @@ export function drawCat(
 
   ctx.translate(anchorX, anchorY - jumpPx + weakSwayY);
 
-  // Floating status bubbles above cat
-  if (cat.isSick) {
-    drawSickIndicator(
-      ctx,
-      s * bedCatMult * (stage === 'baby' ? 0.82 : stage === 'child' ? 0.88 : 1),
-      cat.time
-    );
-  } else if (cat.isHungry && cat.behavior !== 'EATING' && cat.behavior !== 'SLEEPING') {
-    drawHungryThoughtBubble(
-      ctx,
-      s * (stage === 'baby' ? 0.82 : stage === 'child' ? 0.88 : 1),
-      cat.time
-    );
-  }
-
+  ctx.save();
   ctx.rotate(rollTilt);
   ctx.scale(
     s * bedCatMult * cat.facing * (cat.scaleX * sickDroopX + rumbleScale),
@@ -1078,6 +1293,26 @@ export function drawCat(
 
   if ((isChildStage && !hasChildSheet) || (isBabyStage && !hasBabySheet)) {
     drawKittenStageCat(ctx, cat, stage);
+    ctx.restore();
+    const fallbackScale =
+      s * bedCatMult * (stage === 'baby' ? 0.82 : stage === 'child' ? 0.88 : 1);
+    if (cat.isSick) {
+      drawSickIndicator(ctx, fallbackScale, cat.time);
+    } else {
+      const emote = pickCatEmoteKind(cat, isDrowsyLight, isDrowsyHeavy);
+      if (emote) {
+        drawEmoteBubble(
+          ctx,
+          emote.kind,
+          fallbackScale,
+          cat.time,
+          emote.alpha,
+          emote.popScale,
+          cat.behavior === 'DOZING',
+          cat.hunger <= 15
+        );
+      }
+    }
     ctx.restore();
     return;
   }
@@ -1150,9 +1385,9 @@ export function drawCat(
       ? 'child'
       : 'adult';
 
-    if (cat.isSick && cat.behavior !== 'SLEEPING') {
+    if (cat.isSick && !isRestingPose) {
       drawCatSickExpression(ctx, row, col, cat.breed, cat.time, anchorStage);
-    } else if ((isDrowsyHeavy || isDrowsyLight) && cat.behavior !== 'SLEEPING') {
+    } else if ((isDrowsyHeavy || isDrowsyLight) && !isRestingPose) {
       drawCatTiredExpression(
         ctx,
         row,
@@ -1184,6 +1419,31 @@ export function drawCat(
     ctx.ellipse(0, -45, 45, 34, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // Floating status / emote bubble above the cat's head (always upright and on top of hat/ears)
+  const bubbleScale =
+    s *
+    bedCatMult *
+    (stage === 'baby' ? 0.82 : stage === 'child' ? 0.88 : stage === 'teen' ? 0.94 : 1);
+  if (cat.isSick) {
+    drawSickIndicator(ctx, bubbleScale, cat.time);
+  } else {
+    const emote = pickCatEmoteKind(cat, isDrowsyLight, isDrowsyHeavy);
+    if (emote) {
+      drawEmoteBubble(
+        ctx,
+        emote.kind,
+        bubbleScale,
+        cat.time,
+        emote.alpha,
+        emote.popScale,
+        cat.behavior === 'DOZING',
+        cat.hunger <= 15
+      );
+    }
   }
 
   ctx.restore();
@@ -1326,7 +1586,7 @@ function drawKittenStageCat(
     !cat.isSick &&
     (cat.drowsyStage ? cat.drowsyStage === 'drowsy_light' : cat.energy > 20 && cat.energy <= 40);
   const t = cat.isSick ? cat.animTime * 0.45 : isDrowsyHeavy ? cat.animTime * 0.56 : cat.animTime;
-  const isSleeping = cat.behavior === 'SLEEPING';
+  const isSleeping = cat.behavior === 'SLEEPING' || cat.behavior === 'DOZING';
   const isWalking = cat.behavior === 'WALKING' || cat.behavior === 'PLAYING';
   const isEating = cat.behavior === 'EATING';
   const isPurring = cat.behavior === 'PURRING';
@@ -1669,40 +1929,31 @@ function drawKittenStageCat(
   ctx.filter = 'none';
 
   const eyeCenterAnchor = { x: headX + 4.5, y: eyeCenterY };
-  if (cat.isSick || isDrowsyHeavy || isDrowsyLight) {
-    const isLight = !cat.isSick && isDrowsyLight;
-    const lidHeight = isLight ? 3.1 : 4.6;
-    const lidY = isLight ? -3.4 : -2.5;
-    // Draw sick/drowsy droopy eyelids over kitten eyes
+  if (cat.isSick) {
+    // Draw sick droopy eyelids over kitten eyes
     ctx.save();
     ctx.translate(eyeCenterAnchor.x, eyeCenterAnchor.y);
     ctx.fillStyle = profile.primaryColor;
     ctx.strokeStyle = '#2B231E';
-    ctx.lineWidth = isLight ? 1.8 : 2.2;
+    ctx.lineWidth = 2.2;
     ctx.beginPath();
-    ctx.ellipse(-12, lidY, 8, lidHeight, cat.isSick ? -0.22 : 0, Math.PI, Math.PI * 2);
+    ctx.ellipse(-12, -2.5, 8, 4.6, -0.22, Math.PI, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.beginPath();
-    ctx.ellipse(12, lidY, 8, lidHeight, cat.isSick ? 0.22 : 0, Math.PI, Math.PI * 2);
+    ctx.ellipse(12, -2.5, 8, 4.6, 0.22, Math.PI, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-
-    // Periodic sleepy yawn mouth when drowsy
-    if (!cat.isSick && cat.behavior !== 'EATING') {
-      const cycle = isLight ? 8.5 : 4.8;
-      const phase = cat.time % cycle;
-      if (phase < 1.05) {
-        const open = Math.sin((phase / 1.05) * Math.PI);
-        ctx.fillStyle = '#FB7185';
-        ctx.strokeStyle = '#2B231E';
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.ellipse(1, 13.5, 4.2, Math.max(1.5, 5.2 * open), 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
+    ctx.restore();
+  } else if ((isDrowsyHeavy || isDrowsyLight) && !isPurring && !isSleeping) {
+    const isLight = isDrowsyLight;
+    const droop = computeSleepyDroop(cat.time, isLight);
+    const pal = SLEEPY_LID_PALETTE[cat.breed];
+    const eyeR = isBaby ? 6.6 : 5.7;
+    ctx.save();
+    ctx.translate(eyeCenterAnchor.x, eyeCenterAnchor.y);
+    drawSleepyEyelid(ctx, -12.5, 0, eyeR + 0.6, eyeR, droop, isLight, pal, 0.04);
+    drawSleepyEyelid(ctx, 12.5, 0, eyeR + 0.6, eyeR, droop, isLight, pal, -0.04);
     ctx.restore();
   }
 
@@ -2125,6 +2376,314 @@ function drawCatSickExpression(
   ctx.restore();
 }
 
+interface EyeBox {
+  x: number;
+  y: number;
+  rx: number;
+  ry: number;
+}
+
+interface StageEyeAnchors {
+  left: EyeBox;
+  right: EyeBox;
+  rot: number;
+}
+
+const SLEEPY_LID_PALETTE: Record<
+  CatBreed,
+  { furTop: string; furCrease: string; outline: string; underEye: string }
+> = {
+  oren: {
+    furTop: '#ED7F1C',
+    furCrease: '#C95E16',
+    outline: '#482224',
+    underEye: 'rgba(130, 52, 24, 0.16)',
+  },
+  mochi: {
+    furTop: '#DCD4C6',
+    furCrease: '#B8AEA0',
+    outline: '#3B3133',
+    underEye: 'rgba(120, 108, 102, 0.15)',
+  },
+  arang: {
+    furTop: '#464E5D',
+    furCrease: '#2E3440',
+    outline: '#1B1E26',
+    underEye: 'rgba(20, 24, 34, 0.24)',
+  },
+  abu: {
+    furTop: '#8492A8',
+    furCrease: '#647288',
+    outline: '#363034',
+    underEye: 'rgba(65, 76, 98, 0.20)',
+  },
+};
+
+function getAdultEyeAnchors(row: number, col: number): StageEyeAnchors | null {
+  switch (row) {
+    case 0: // EATING (cols 2, 3, 5 already have closed eyes)
+      if (col === 2 || col === 3 || col === 5) return null;
+      return {
+        left: { x: 33.5, y: -62.2, rx: 7.4, ry: 6.4 },
+        right: { x: 59.0, y: -61.8, rx: 6.6, ry: 6.0 },
+        rot: 0.04,
+      };
+    case 1: // GROOMING / PURRING (cols 1..4 already have closed/happy eyes)
+      if (col >= 1 && col <= 4) return null;
+      if (col === 0) {
+        return {
+          left: { x: 17.5, y: -108.5, rx: 7.4, ry: 6.6 },
+          right: { x: 47.0, y: -107.5, rx: 6.8, ry: 6.2 },
+          rot: -0.02,
+        };
+      }
+      return {
+        left: { x: 19.0, y: -111.5, rx: 7.4, ry: 6.6 },
+        right: { x: 48.0, y: -112.5, rx: 6.8, ry: 6.2 },
+        rot: -0.02,
+      };
+    case 2: // PLAYING (col 5 has closed left eye)
+      if (col === 5) return null;
+      if (col >= 4) {
+        return {
+          left: { x: 30.2, y: -56.4, rx: 7.2, ry: 6.2 },
+          right: { x: 59.6, y: -56.4, rx: 6.2, ry: 5.8 },
+          rot: 0.02,
+        };
+      }
+      return {
+        left: { x: 33.2, y: -74.0, rx: 7.4, ry: 6.5 },
+        right: { x: 64.2, y: -72.0, rx: 6.5, ry: 6.0 },
+        rot: 0.04,
+      };
+    case 3: // SLEEPING
+      return null;
+    case 4: // IDLE (cols 2 & 3 are already squinting/closed)
+      if (col === 2 || col === 3) return null;
+      return {
+        left: { x: 29.8, y: -103.8, rx: 7.6, ry: 6.8 },
+        right: { x: 59.2, y: -102.6, rx: 6.6, ry: 6.2 },
+        rot: 0.02,
+      };
+    case 5: // WALKING
+      return {
+        left: { x: 32.8, y: -102.2, rx: 7.5, ry: 6.8 },
+        right: { x: 63.0, y: -101.2, rx: 6.6, ry: 6.2 },
+        rot: 0.02,
+      };
+    case 6: // SPRINT
+      return {
+        left: { x: 58.0, y: -86.5, rx: 7.4, ry: 6.6 },
+        right: { x: 86.0, y: -86.5, rx: 6.6, ry: 6.2 },
+        rot: 0.02,
+      };
+    case 7: // STRETCHING (cols 1..3 have closed/winking eyes)
+      if (col >= 1) return null;
+      return {
+        left: { x: 34.5, y: -115.5, rx: 7.5, ry: 6.8 },
+        right: { x: 65.0, y: -114.5, rx: 6.6, ry: 6.2 },
+        rot: 0.02,
+      };
+    default:
+      return null;
+  }
+}
+
+function getBabyEyeAnchors(row: number, col: number): StageEyeAnchors | null {
+  switch (row) {
+    case 0: // EATING
+      if (col >= 3) {
+        return {
+          left: { x: 18.2, y: -67.6, rx: 7.0, ry: 6.4 },
+          right: { x: 46.0, y: -64.8, rx: 6.4, ry: 6.0 },
+          rot: 0.06,
+        };
+      }
+      return {
+        left: { x: 17.5, y: -54.0, rx: 7.0, ry: 6.4 },
+        right: { x: 43.5, y: -51.5, rx: 6.4, ry: 6.0 },
+        rot: 0.06,
+      };
+    case 1: // GROOMING / PURRING
+      if (col >= 1 && col <= 4) return null;
+      return {
+        left: { x: 9.2, y: -76.3, rx: 7.0, ry: 6.4 },
+        right: { x: 37.0, y: -76.3, rx: 6.4, ry: 6.0 },
+        rot: 0,
+      };
+    case 2: // PLAYING
+      if (col === 5) return null;
+      if (col >= 4) {
+        return {
+          left: { x: 25.1, y: -73.3, rx: 6.8, ry: 6.2 },
+          right: { x: 50.0, y: -71.5, rx: 6.2, ry: 5.8 },
+          rot: 0.04,
+        };
+      }
+      return {
+        left: { x: 23.4, y: -57.4, rx: 7.0, ry: 6.4 },
+        right: { x: 48.5, y: -55.6, rx: 6.4, ry: 6.0 },
+        rot: 0.04,
+      };
+    case 3: // SLEEPING
+      return null;
+    case 4: // IDLE
+      return {
+        left: { x: 14.8, y: -76.0, rx: 7.2, ry: 6.6 },
+        right: { x: 41.6, y: -79.2, rx: 6.5, ry: 6.2 },
+        rot: -0.06,
+      };
+    case 5: // WALKING
+      return {
+        left: { x: 21.0, y: -72.0, rx: 7.0, ry: 6.4 },
+        right: { x: 48.6, y: -71.2, rx: 6.4, ry: 6.0 },
+        rot: 0.02,
+      };
+    case 6: // SPRINT
+      return {
+        left: { x: 44.5, y: -63.8, rx: 7.0, ry: 6.4 },
+        right: { x: 72.0, y: -61.2, rx: 6.4, ry: 6.0 },
+        rot: 0.05,
+      };
+    case 7: // STRETCHING
+      if (col >= 1) return null;
+      return {
+        left: { x: 23.2, y: -86.3, rx: 7.0, ry: 6.5 },
+        right: { x: 53.0, y: -86.2, rx: 6.4, ry: 6.1 },
+        rot: 0,
+      };
+    default:
+      return null;
+  }
+}
+
+function getStageEyeAnchors(
+  row: number,
+  col: number,
+  stageMode: 'baby' | 'child' | 'adult'
+): StageEyeAnchors | null {
+  if (stageMode === 'baby') return getBabyEyeAnchors(row, col);
+  if (stageMode === 'adult') return getAdultEyeAnchors(row, col);
+  const b = getBabyEyeAnchors(row, col);
+  const a = getAdultEyeAnchors(row, col);
+  if (!b || !a) return null;
+  const lerpX = (v1: number, v2: number) => v1 + (v2 - v1) * 0.38;
+  const lerpY = (v1: number, v2: number) => v1 + (v2 - v1) * 0.48;
+  return {
+    left: {
+      x: lerpX(b.left.x, a.left.x),
+      y: lerpY(b.left.y, a.left.y),
+      rx: lerpY(b.left.rx, a.left.rx),
+      ry: lerpY(b.left.ry, a.left.ry),
+    },
+    right: {
+      x: lerpX(b.right.x, a.right.x),
+      y: lerpY(b.right.y, a.right.y),
+      rx: lerpY(b.right.rx, a.right.rx),
+      ry: lerpY(b.right.ry, a.right.ry),
+    },
+    rot: lerpY(b.rot, a.rot),
+  };
+}
+
+function smoothstep(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  return c * c * (3 - 2 * c);
+}
+
+function computeSleepyDroop(time: number, isLight: boolean): number {
+  const baseDroop = isLight ? 0.36 : 0.56;
+  const breathe = Math.sin(time * 2.0) * (isLight ? 0.035 : 0.05);
+  const cycle = isLight ? 4.4 : 2.85;
+  const blinkDur = isLight ? 0.86 : 1.25;
+  const phase = ((time % cycle) + cycle) % cycle;
+
+  let blinkAmt = 0;
+  if (phase < blinkDur) {
+    const p = phase / blinkDur;
+    if (p < 0.38) {
+      // Slow heavy lid sinking shut
+      blinkAmt = smoothstep(p / 0.38);
+    } else if (p < 0.64) {
+      // Brief peaceful shut pause
+      blinkAmt = 1;
+    } else {
+      // Lazy lift back to heavy-lidded state
+      blinkAmt = 1 - smoothstep((p - 0.64) / 0.36);
+    }
+  } else if (!isLight) {
+    // Subtle extra drowsy nod mid-cycle when heavily sleepy
+    const nodStart = blinkDur + 0.55;
+    const nodDur = 0.55;
+    if (phase >= nodStart && phase < nodStart + nodDur) {
+      blinkAmt = 0.45 * Math.sin(((phase - nodStart) / nodDur) * Math.PI);
+    }
+  }
+
+  return Math.max(0.28, Math.min(1, baseDroop + breathe + (1 - baseDroop - breathe) * blinkAmt));
+}
+
+function drawSleepyEyelid(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  droop: number,
+  isLight: boolean,
+  pal: { furTop: string; furCrease: string; outline: string; underEye: string },
+  tilt: number
+): void {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(tilt);
+
+  // Subtle under-eye drowsy shadow crescent
+  ctx.strokeStyle = pal.underEye;
+  ctx.lineWidth = isLight ? 1.4 : 1.9;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(0, 1.4, rx * 0.82, 0.32, Math.PI - 0.32);
+  ctx.stroke();
+
+  // Compute organic curved lid position (0 = top of eye, 1 = peacefully closed crescent)
+  const lidY = -ry + droop * (ry * 1.66);
+  const curveSag = droop > 0.72 ? 1.8 + (droop - 0.72) * 3.8 : 0.7 + droop * 1.1;
+
+  // Clip strictly inside the eye oval so the eyelid never spills onto forehead/cheeks
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx + 0.9, ry + 0.9, 0, 0, Math.PI * 2);
+  ctx.clip();
+
+  const grad = ctx.createLinearGradient(0, -ry - 1, 0, lidY + curveSag + 1);
+  grad.addColorStop(0, pal.furTop);
+  grad.addColorStop(0.76, pal.furTop);
+  grad.addColorStop(1, pal.furCrease);
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(-rx - 2, -ry - 2);
+  ctx.lineTo(rx + 2, -ry - 2);
+  ctx.lineTo(rx + 2, lidY);
+  ctx.quadraticCurveTo(0, lidY + curveSag, -rx - 2, lidY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Soft curved sleepy lash / eyelid crease line (organic downward sleepy arc)
+  const edgeSpan = rx * (0.95 - droop * 0.06);
+  ctx.strokeStyle = pal.outline;
+  ctx.lineWidth = isLight ? 1.85 : 2.15;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-edgeSpan, lidY - 0.2);
+  ctx.quadraticCurveTo(0, lidY + curveSag, edgeSpan, lidY + 0.15);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function drawCatTiredExpression(
   ctx: CanvasRenderingContext2D,
   row: number,
@@ -2134,57 +2693,36 @@ function drawCatTiredExpression(
   tier: 'light' | 'heavy' = 'heavy',
   stageMode: 'baby' | 'child' | 'adult' = 'adult'
 ): void {
-  const anchors = getStageAccessoryAnchors(row, col, stageMode);
-  const a = anchors.glasses;
-  const furColor = CAT_BREEDS[breed].primaryColor;
+  const eyeAnchors = getStageEyeAnchors(row, col, stageMode);
+  if (!eyeAnchors) return;
+
   const isLight = tier === 'light';
-  const lidY = isLight ? -4.2 : -3;
-  const lidH = isLight ? 3.2 : 5.0;
-  const lashY = isLight ? -3.7 : -2.4;
+  const droop = computeSleepyDroop(time, isLight);
+  const pal = SLEEPY_LID_PALETTE[breed];
 
   ctx.save();
-  ctx.translate(a.x, a.y);
-  ctx.rotate(a.rot);
-  ctx.scale(a.scale, a.scale);
-
-  // Mildly droopy (21-40) or heavily droopy (<=20) eyelids
-  ctx.fillStyle = furColor;
-  ctx.strokeStyle = '#2B231E';
-  ctx.lineWidth = isLight ? 1.8 : 2.2;
-  ctx.beginPath();
-  ctx.ellipse(-14, lidY, 8.8, lidH, 0, Math.PI, Math.PI * 2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(-22.5, lashY);
-  ctx.lineTo(-5.5, lashY);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.ellipse(14, lidY, 8.8, lidH, 0, Math.PI, Math.PI * 2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(5.5, lashY);
-  ctx.lineTo(22.5, lashY);
-  ctx.stroke();
-
-  // Periodic yawning oval mouth
-  if (row !== 0) {
-    const cycle = isLight ? 8.5 : 4.8;
-    const phase = time % cycle;
-    if (phase < 1.05) {
-      const open = Math.sin((phase / 1.05) * Math.PI);
-      ctx.fillStyle = '#FB7185';
-      ctx.strokeStyle = '#2B231E';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.ellipse(0, 14.5, 4.6, Math.max(1.5, 5.8 * open), 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-  }
-
+  drawSleepyEyelid(
+    ctx,
+    eyeAnchors.left.x,
+    eyeAnchors.left.y,
+    eyeAnchors.left.rx,
+    eyeAnchors.left.ry,
+    droop,
+    isLight,
+    pal,
+    eyeAnchors.rot + 0.04
+  );
+  drawSleepyEyelid(
+    ctx,
+    eyeAnchors.right.x,
+    eyeAnchors.right.y,
+    eyeAnchors.right.rx,
+    eyeAnchors.right.ry,
+    droop,
+    isLight,
+    pal,
+    eyeAnchors.rot - 0.04
+  );
   ctx.restore();
 }
 
@@ -2533,45 +3071,322 @@ function drawAccessoryAtAnchors(
   }
 }
 
-function drawHungryThoughtBubble(ctx: CanvasRenderingContext2D, s: number, time: number): void {
-  const bob = Math.sin(time * 2.8) * 3.5 * s;
+type EmoteBubbleKind = 'hungry' | 'sleepy' | 'happy';
+
+interface EmoteBubbleDecision {
+  kind: EmoteBubbleKind;
+  alpha: number;
+  popScale: number;
+}
+
+function pickCatEmoteKind(
+  cat: CatRenderState,
+  isDrowsyLight: boolean,
+  isDrowsyHeavy: boolean
+): EmoteBubbleDecision | null {
+  if (cat.isSick || cat.isDragging || cat.behavior === 'SLEEPING') {
+    return null;
+  }
+
+  const isRestingOnFloor = cat.behavior === 'DOZING';
+  const isSleepyState =
+    isDrowsyHeavy ||
+    isDrowsyLight ||
+    cat.drowsyStage === 'exhausted' ||
+    cat.energy <= 35;
+
+  // 1. Urgent hungry need
+  if (cat.isHungry && cat.behavior !== 'EATING' && !isRestingOnFloor) {
+    return { kind: 'hungry', alpha: 1, popScale: 1 };
+  }
+
+  // 2. Sleepy / drowsy need
+  if (isSleepyState) {
+    return { kind: 'sleepy', alpha: 1, popScale: 1 };
+  }
+
+  // 3. Happy / joyful state (immediate during active joy, gentle periodic pulse when passively happy)
+  if (isRestingOnFloor) return null;
+
+  const isActiveJoy =
+    cat.behavior === 'PURRING' ||
+    cat.behavior === 'PLAYING' ||
+    cat.behavior === 'ROLLING' ||
+    (cat.behavior === 'EATING' && cat.happiness >= 55);
+
+  if (isActiveJoy) {
+    return { kind: 'happy', alpha: 1, popScale: 1 };
+  }
+
+  if (cat.happiness >= 78) {
+    const cycleDuration = 8.5;
+    const visibleDuration = 4.2;
+    const phase = ((cat.time % cycleDuration) + cycleDuration) % cycleDuration;
+    if (phase > visibleDuration) return null;
+
+    let alpha = 1;
+    let popScale = 1;
+    if (phase < 0.35) {
+      const p = phase / 0.35;
+      alpha = p;
+      // Soft spring pop-in
+      popScale = 0.65 + 0.35 * Math.sin((p * Math.PI) / 2) + 0.08 * Math.sin(p * Math.PI);
+    } else if (phase > visibleDuration - 0.45) {
+      const p = (visibleDuration - phase) / 0.45;
+      alpha = Math.max(0, p);
+      popScale = 0.85 + 0.15 * p;
+    }
+    return { kind: 'happy', alpha, popScale };
+  }
+
+  return null;
+}
+
+function drawFourPointSparkle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  fill: string,
+  rotation = 0
+): void {
   ctx.save();
-  ctx.translate(46 * s, -148 * s + bob);
-  ctx.scale(s, s);
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const r = i % 2 === 0 ? radius : radius * 0.34;
+    const a = (i * Math.PI) / 4;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
 
-  ctx.fillStyle = '#FFFDF9';
-  ctx.strokeStyle = '#2B231E';
+function drawEmoteBubble(
+  ctx: CanvasRenderingContext2D,
+  kind: EmoteBubbleKind,
+  s: number,
+  time: number,
+  alpha: number,
+  popScale: number,
+  isLowPose: boolean,
+  isUrgentHungry: boolean
+): void {
+  const bob = Math.sin(time * 2.8) * 3.5 * s;
+  const baseY = (isLowPose ? -114 : -144) * s + bob;
+  const baseX = (isLowPose ? 34 : 42) * s;
+
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.translate(baseX, baseY);
+  ctx.scale(s * popScale, s * popScale);
+
+  // Ascending thought dots with subtle offset bobbing
+  const dot1Y = 22 + Math.sin(time * 3.2 - 0.9) * 1.1;
+  const dot2Y = 12 + Math.sin(time * 3.2 - 0.4) * 1.4;
+
+  ctx.fillStyle = '#FFFDF8';
+  ctx.strokeStyle = '#4E270F';
   ctx.lineWidth = 2;
+
   ctx.beginPath();
-  ctx.arc(-18, 22, 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(-10, 12, 5.5, 0, Math.PI * 2);
+  ctx.arc(-18, dot1Y, 3.6, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.roundRect(-24, -22, 52, 32, 14);
+  ctx.arc(-10, dot2Y, 5.2, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  ctx.strokeStyle = '#D97706';
+  // Gentle breathing squish on main bubble
+  const squishX = 1 + Math.sin(time * 3.1) * 0.024;
+  const squishY = 1 - Math.sin(time * 3.1) * 0.024;
+  ctx.save();
+  ctx.translate(2, -4);
+  ctx.scale(squishX, squishY);
+
+  // Soft warm shadow
+  ctx.fillStyle = 'rgba(45, 25, 12, 0.16)';
+  ctx.beginPath();
+  ctx.roundRect(-26, -19, 54, 36, 15);
+  ctx.fill();
+
+  // Outer cream bubble
+  ctx.fillStyle = '#FFFDF8';
+  ctx.strokeStyle = '#4E270F';
   ctx.lineWidth = 2.2;
-  ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(-10, -6);
-  ctx.lineTo(10, -6);
-  ctx.moveTo(-4, -11);
-  ctx.lineTo(-4, -1);
-  ctx.moveTo(2, -11);
-  ctx.lineTo(2, -1);
-  ctx.moveTo(10, -6);
-  ctx.lineTo(15, -11);
-  ctx.moveTo(10, -6);
-  ctx.lineTo(15, -1);
+  ctx.roundRect(-27, -21, 54, 36, 15);
+  ctx.fill();
   ctx.stroke();
 
+  // Pastel inner tint matching the emote mood
+  ctx.fillStyle =
+    kind === 'hungry'
+      ? '#FFF3DC'
+      : kind === 'sleepy'
+      ? '#EAF3FF'
+      : '#FFEBF0';
+  ctx.beginPath();
+  ctx.roundRect(-23.5, -17.5, 47, 29, 12);
+  ctx.fill();
+
+  if (kind === 'hungry') {
+    // Animated cute orange fish + rising aroma curls
+    const wiggleSpeed = isUrgentHungry ? 7.8 : 4.8;
+    const fishTilt = Math.sin(time * wiggleSpeed) * (isUrgentHungry ? 0.14 : 0.08);
+    const fishBob = Math.sin(time * (wiggleSpeed * 0.8)) * 1.2;
+
+    // Rising warm aroma wisps
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.72)';
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 2; i++) {
+      const p = ((time * 0.85 + i * 0.5) % 1 + 1) % 1;
+      const wx = -6 + i * 11 + Math.sin(p * Math.PI * 2) * 1.4;
+      const wy = -9 - p * 6.5;
+      ctx.save();
+      ctx.globalAlpha *= Math.sin(p * Math.PI);
+      ctx.beginPath();
+      ctx.moveTo(wx, wy + 2.5);
+      ctx.quadraticCurveTo(wx - 1.5, wy + 1, wx, wy - 1);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.translate(1, -1 + fishBob);
+    ctx.rotate(fishTilt);
+
+    // Wagging tail fin
+    const tailWag = Math.sin(time * 9) * 0.22;
+    ctx.save();
+    ctx.translate(-9, 0);
+    ctx.rotate(tailWag);
+    ctx.fillStyle = '#FB923C';
+    ctx.strokeStyle = '#9A3412';
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-7, -5.5);
+    ctx.quadraticCurveTo(-5, 0, -7, 5.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Fish body
+    ctx.fillStyle = '#FDBA74';
+    ctx.strokeStyle = '#9A3412';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.ellipse(1, 0, 10.5, 6.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Top belly highlight
+    ctx.fillStyle = '#FFF7ED';
+    ctx.beginPath();
+    ctx.ellipse(2, -2.1, 6.2, 2.1, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Gill line + cute eye
+    ctx.strokeStyle = '#9A3412';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(3.5, 0, 3.2, Math.PI * 0.65, Math.PI * 1.35);
+    ctx.stroke();
+
+    ctx.fillStyle = '#4E270F';
+    ctx.beginPath();
+    ctx.arc(6.8, -1.2, 1.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else if (kind === 'sleepy') {
+    // Cozy gently rocking crescent moon + floating Zzz loop
+    const moonRock = Math.sin(time * 2.1) * 0.14;
+    ctx.save();
+    ctx.translate(-8, -3);
+    ctx.rotate(moonRock);
+    ctx.fillStyle = '#FBBF24';
+    ctx.strokeStyle = '#92400E';
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.arc(0, 0, 8.2, Math.PI * 0.25, Math.PI * 1.75, false);
+    ctx.arc(3.4, -1.6, 6.4, Math.PI * 1.62, Math.PI * 0.38, true);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Staggered animated rising Z's
+    const zCount = 2;
+    for (let i = 0; i < zCount; i++) {
+      const p = ((time * 0.72 + i * 0.5) % 1 + 1) % 1;
+      const zx = 3 + p * 11 + Math.sin(p * Math.PI * 2) * 1.2;
+      const zy = 4 - p * 14;
+      const zScale = 0.72 + p * 0.45;
+      ctx.save();
+      ctx.globalAlpha *= Math.sin(p * Math.PI);
+      ctx.translate(zx, zy);
+      ctx.scale(zScale, zScale);
+      ctx.fillStyle = '#2563EB';
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2.4;
+      ctx.font = '800 11px "Bricolage Grotesque", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeText('Z', 0, 0);
+      ctx.fillText('Z', 0, 0);
+      ctx.restore();
+    }
+  } else {
+    // Happy: bouncing pulsing heart + twinkling sparkles
+    const beat = Math.pow(Math.max(0, Math.sin(time * 4.8)), 2);
+    const heartScale = 0.94 + beat * 0.2;
+    const heartTilt = Math.sin(time * 3.1) * 0.08;
+    const heartBounceY = -beat * 1.8;
+
+    // Two twinkling 4-point sparkles
+    const s1 = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(time * 5.2));
+    const s2 = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(time * 5.2 + Math.PI * 0.9));
+    drawFourPointSparkle(ctx, -13.5, -8.5, 4.4 * s1, '#FBBF24', time * 1.1);
+    drawFourPointSparkle(ctx, 13.5, -9, 4.0 * s2, '#F59E0B', -time * 1.2);
+
+    ctx.save();
+    ctx.translate(0, -1 + heartBounceY);
+    ctx.rotate(heartTilt);
+    ctx.scale(heartScale, heartScale);
+
+    ctx.fillStyle = '#F43F5E';
+    ctx.strokeStyle = '#9F1239';
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(0, 7.5);
+    ctx.bezierCurveTo(-11, 0.5, -10.5, -9.5, -4.5, -9.5);
+    ctx.bezierCurveTo(-1.4, -9.5, 0, -6.4, 0, -5.2);
+    ctx.bezierCurveTo(0, -6.4, 1.4, -9.5, 4.5, -9.5);
+    ctx.bezierCurveTo(10.5, -9.5, 11, 0.5, 0, 7.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Glossy heart shine
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.beginPath();
+    ctx.ellipse(-4.2, -5.4, 1.9, 1.1, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
   ctx.restore();
 }
 
