@@ -421,6 +421,7 @@ export interface BreedProfile {
   babySpriteSheet: string;
   childSpriteSheet: string;
   bathSpriteSheet: string;
+  dragSpriteSheet: string;
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -440,6 +441,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     babySpriteSheet: '/assets/sprites/baby_oren.png',
     childSpriteSheet: '/assets/sprites/child_oren.png',
     bathSpriteSheet: '/assets/sprites/bath_oren.png',
+    dragSpriteSheet: '/assets/sprites/drag_oren.png',
     primaryColor: '#E88B38',
     secondaryColor: '#FFF3E0',
     accentColor: '#B8591C',
@@ -457,6 +459,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     babySpriteSheet: '/assets/sprites/baby_mochi.png',
     childSpriteSheet: '/assets/sprites/child_mochi.png',
     bathSpriteSheet: '/assets/sprites/bath_mochi.png',
+    dragSpriteSheet: '/assets/sprites/drag_mochi.png',
     primaryColor: '#F5ECE0',
     secondaryColor: '#FFFDF9',
     accentColor: '#D6C2AA',
@@ -474,6 +477,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     babySpriteSheet: '/assets/sprites/baby_arang.png',
     childSpriteSheet: '/assets/sprites/child_arang.png',
     bathSpriteSheet: '/assets/sprites/bath_arang.png',
+    dragSpriteSheet: '/assets/sprites/drag_arang.png',
     primaryColor: '#343942',
     secondaryColor: '#F7F7F5',
     accentColor: '#1F2329',
@@ -491,6 +495,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     babySpriteSheet: '/assets/sprites/baby_abu.png',
     childSpriteSheet: '/assets/sprites/child_abu.png',
     bathSpriteSheet: '/assets/sprites/bath_abu.png',
+    dragSpriteSheet: '/assets/sprites/drag_abu.png',
     primaryColor: '#98A4B3',
     secondaryColor: '#F2F4F7',
     accentColor: '#697686',

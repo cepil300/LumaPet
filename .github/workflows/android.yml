@@ -51,12 +51,91 @@ jobs:
           npx cap add android
           npx cap sync android
           python3 -c '
-          p = "android/app/src/main/AndroidManifest.xml"
-          s = open(p).read()
+          import os, re
+          run_num = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+          ver_code = 100 + run_num
+          ver_name = f"1.0.{run_num}"
+
+          gradle_path = "android/app/build.gradle"
+          g = open(gradle_path).read()
+          g = re.sub(r"versionCode\s+\d+", f"versionCode {ver_code}", g)
+          g = re.sub(r"versionName\s+\"[^\"]+\"", f"versionName \"{ver_name}\"", g)
+          open(gradle_path, "w").write(g)
+
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          s = open(manifest_path).read()
           if "screenOrientation" not in s:
               s = s.replace("android:name=\".MainActivity\"", "android:name=\".MainActivity\" android:screenOrientation=\"sensorLandscape\"")
-              open(p, "w").write(s)
+          if "allowBackup" not in s:
+              s = s.replace("<application", "<application android:allowBackup=\"true\"")
+          open(manifest_path, "w").write(s)
           '
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+
+      - name: Set Android Launcher App Icon
+        run: |
+          if ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y imagemagick
+          fi
+
+          RES_DIR="android/app/src/main/res"
+          SRC_ICON="public/assets/aistudio/image_e0ece965.png"
+
+          convert "$SRC_ICON" -alpha set -fuzz 14% -fill none \
+            -draw "color 0,0 floodfill" \
+            -draw "color 1023,0 floodfill" \
+            -draw "color 0,1023 floodfill" \
+            -draw "color 1023,1023 floodfill" \
+            /tmp/ic_alpha.png
+
+          convert -size 1024x1024 xc:"#FFF6E9" \( /tmp/ic_alpha.png -resize 760x760 \) -gravity center -composite /tmp/ic_round_src.png
+          convert -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,32" /tmp/ic_circle_mask.png
+          convert /tmp/ic_round_src.png /tmp/ic_circle_mask.png -compose CopyOpacity -composite /tmp/ic_round_alpha.png
+
+          rm -f "$RES_DIR"/drawable*/ic_launcher* "$RES_DIR"/mipmap-*/ic_launcher*
+
+          generate_density() {
+            local dir="$RES_DIR/mipmap-$1"
+            local legacy="$2"
+            local adaptive="$3"
+            local fg_inner="$4"
+            mkdir -p "$dir"
+            convert /tmp/ic_alpha.png -resize "${legacy}x${legacy}" "$dir/ic_launcher.png"
+            convert /tmp/ic_round_alpha.png -resize "${legacy}x${legacy}" "$dir/ic_launcher_round.png"
+            convert /tmp/ic_alpha.png -resize "${fg_inner}x${fg_inner}" -background none -gravity center -extent "${adaptive}x${adaptive}" "$dir/ic_launcher_foreground.png"
+          }
+
+          generate_density mdpi 48 108 76
+          generate_density hdpi 72 162 114
+          generate_density xhdpi 96 216 152
+          generate_density xxhdpi 144 324 228
+          generate_density xxxhdpi 192 432 304
+
+          mkdir -p "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26"
+          cat << 'EOF' > "$RES_DIR/values/ic_launcher_background.xml"
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#FFF6E9</color>
+          </resources>
+          EOF
+
+          cat << 'EOF' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          EOF
+
+          cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
+          rm -f /tmp/ic_alpha.png /tmp/ic_round_src.png /tmp/ic_circle_mask.png /tmp/ic_round_alpha.png
+
+      - name: Cache Android Debug Keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-com-cepil300-meongmeong-v1
 
       - name: Fix Kotlin Duplicate Classes
         run: |

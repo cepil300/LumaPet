@@ -77,6 +77,11 @@ export interface CatRenderState {
   equippedHat?: CatHatId;
   equippedGlasses?: CatGlassesId;
   equippedScarf?: CatScarfId;
+  isDragging?: boolean;
+  dragSwing?: number;
+  dragTime?: number;
+  sleepingBed?: CatBedId;
+  sleepingBedDragging?: boolean;
 }
 
 export interface BowlRenderState {
@@ -105,8 +110,11 @@ function pickSpriteFrame(cat: CatRenderState): { row: number; col: number } {
   const isDrowsyHeavy = !cat.isSick && cat.energy <= 20;
   const t = cat.isSick ? cat.animTime * 0.45 : isDrowsyHeavy ? cat.animTime * 0.56 : cat.animTime;
 
+  const isYoungStage = cat.lifeStage === 'baby' || cat.lifeStage === 'child';
+
   if (cat.isSick && cat.behavior === 'SLEEPING') {
-    return { row: 3, col: 2 };
+    const sickSleepFrames = isYoungStage ? [2, 2, 0, 1, 3, 4, 3, 1] : [2, 2, 1, 3, 4, 3];
+    return { row: 3, col: sickSleepFrames[Math.floor(t * 0.65) % sickSleepFrames.length] };
   }
 
   switch (cat.behavior) {
@@ -132,7 +140,10 @@ function pickSpriteFrame(cat: CatRenderState): { row: number; col: number } {
       return { row: 2, col: Math.floor(t * 6.5) % 6 };
     }
     case 'SLEEPING': {
-      return { row: 3, col: 2 };
+      const sleepFrames = isYoungStage
+        ? [2, 2, 2, 0, 0, 1, 3, 4, 3, 1, 0, 0]
+        : [2, 2, 2, 1, 3, 4, 3, 1, 3, 4, 2, 2];
+      return { row: 3, col: sleepFrames[Math.floor(t * 0.72) % sleepFrames.length] };
     }
     case 'ROLLING': {
       return { row: 7, col: Math.floor(t * 2.4) % 4 };
@@ -293,6 +304,36 @@ export function drawCatBed(
   }
 
   ctx.restore();
+}
+
+export interface BedSleepLayout {
+  dx: number;
+  dy: number;
+  catScaleMult: number;
+}
+
+export const CAT_BED_SLEEP_LAYOUT: Record<CatBedId, BedSleepLayout> = {
+  kasur_kucing: { dx: 0, dy: -31, catScaleMult: 0.88 },
+  kasur_semangka: { dx: -5, dy: -32, catScaleMult: 0.88 },
+  keranjang_rajut: { dx: -6, dy: -38, catScaleMult: 0.85 },
+  kasur_donat: { dx: 0, dy: -39, catScaleMult: 0.82 },
+  tenda_kerajaan: { dx: -17, dy: 1, catScaleMult: 0.72 },
+};
+
+export function getCatBedSleepAnchor(
+  bedId: CatBedId,
+  rt: RoomTransform,
+  isBedDragging = false
+): { dx: number; dy: number; catScaleMult: number } {
+  const layout = CAT_BED_SLEEP_LAYOUT[bedId] ?? CAT_BED_SLEEP_LAYOUT.kasur_kucing;
+  const bedScale = Math.max(0.58, rt.scale * 0.96);
+  const dragScale = isBedDragging ? 1.07 : 1.0;
+  const liftY = isBedDragging ? 14 * bedScale : 0;
+  return {
+    dx: layout.dx * bedScale * dragScale,
+    dy: layout.dy * bedScale * dragScale - liftY,
+    catScaleMult: layout.catScaleMult * dragScale,
+  };
 }
 
 export function drawCatBathtub(
@@ -764,18 +805,137 @@ export function drawYarnToy(
   ctx.restore();
 }
 
+export const CAT_DRAG_SCRUFF_LOCAL_Y = -222;
+
+export function getCatStageScale(stage: LifeStage = 'adult'): number {
+  switch (stage) {
+    case 'baby':
+      return 0.64;
+    case 'child':
+      return 0.76;
+    case 'teen':
+      return 0.86;
+    case 'senior':
+      return 0.96;
+    default:
+      return 1;
+  }
+}
+
+function pickDragSpriteFrame(swing: number, dragTime: number, animTime: number): number {
+  if (dragTime < 0.34 && Math.abs(swing) < 0.28) {
+    return 0;
+  }
+  if (swing >= 0.52) return 2;
+  if (swing >= 0.16) return 1;
+  if (swing <= -0.52) return 6;
+  if (swing <= -0.22) return 5;
+  if (swing <= -0.09) return 7;
+  return Math.floor(animTime * 1.8) % 2 === 0 ? 3 : 4;
+}
+
+function getDragAccessoryAnchors(frameCol: number): CatAccessoryAnchors {
+  const headTilts: Record<number, { dx: number; dy: number; rot: number }> = {
+    0: { dx: 0, dy: 0, rot: 0 },
+    1: { dx: -4, dy: 2, rot: 0.08 },
+    2: { dx: -6, dy: 6, rot: 0.15 },
+    3: { dx: 0, dy: 0, rot: 0 },
+    4: { dx: 0, dy: 0, rot: 0 },
+    5: { dx: 5, dy: 4, rot: -0.1 },
+    6: { dx: 7, dy: 7, rot: -0.15 },
+    7: { dx: 2, dy: 1, rot: -0.04 },
+  };
+  const t = headTilts[frameCol] ?? headTilts[3];
+  return {
+    hat: { x: t.dx, y: 16 + t.dy, rot: t.rot, scale: 1 },
+    glasses: { x: t.dx, y: 42 + t.dy, rot: t.rot, scale: 1 },
+    scarf: { x: 0, y: 0, rot: 0, scale: 1 },
+  };
+}
+
 export function drawCat(
   ctx: CanvasRenderingContext2D,
   cat: CatRenderState,
   rt: RoomTransform,
   spriteSheets: Partial<Record<CatBreed, HTMLImageElement>>,
   babySpriteSheets?: Partial<Record<CatBreed, HTMLImageElement>>,
-  childSpriteSheets?: Partial<Record<CatBreed, HTMLImageElement>>
+  childSpriteSheets?: Partial<Record<CatBreed, HTMLImageElement>>,
+  dragSpriteSheets?: Partial<Record<CatBreed, HTMLImageElement>>
 ): void {
   const screenPos = roomToScreen(cat.nx, cat.ny, rt);
   const s = Math.max(0.43, rt.scale * 0.72);
   const jumpPx = cat.z * rt.drawH;
   const stage: LifeStage = cat.lifeStage ?? 'adult';
+
+  if (cat.isDragging) {
+    const dragSheet = dragSpriteSheets?.[cat.breed];
+    if (dragSheet && dragSheet.complete && dragSheet.naturalWidth > 0) {
+      const stageScale = getCatStageScale(stage);
+      const shadowSizeMult =
+        stage === 'baby' ? 0.68 : stage === 'child' ? 0.74 : stage === 'teen' ? 0.86 : 1;
+      const shadowScale = Math.max(0.28, 0.78 - cat.z * 1.1) * shadowSizeMult;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(35, 27, 20, 0.2)';
+      ctx.beginPath();
+      ctx.ellipse(
+        screenPos.x,
+        screenPos.y - 2 * s,
+        52 * s * shadowScale,
+        14 * s * shadowScale,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+
+      ctx.translate(screenPos.x, screenPos.y - jumpPx);
+      ctx.scale(s * stageScale, s * stageScale);
+
+      const swing = Math.max(-1.25, Math.min(1.25, cat.dragSwing ?? 0));
+      const frameCol = pickDragSpriteFrame(swing, cat.dragTime ?? 0, cat.time);
+      const cols = 8;
+      const cellW = dragSheet.naturalWidth / cols;
+      const cellH = dragSheet.naturalHeight;
+      const drawW = 122;
+      const drawH = drawW * (cellH / cellW);
+
+      ctx.translate(0, CAT_DRAG_SCRUFF_LOCAL_Y);
+      ctx.rotate(swing * 0.11);
+
+      ctx.imageSmoothingEnabled = true;
+      if (cat.isSick) {
+        ctx.filter = 'saturate(0.55) brightness(0.93) contrast(0.95)';
+      } else if (stage === 'senior') {
+        ctx.filter = 'saturate(0.82) brightness(1.03) contrast(0.97)';
+      }
+
+      ctx.drawImage(
+        dragSheet,
+        frameCol * cellW,
+        0,
+        cellW,
+        cellH,
+        -drawW / 2,
+        -drawH * 0.006,
+        drawW,
+        drawH
+      );
+      ctx.filter = 'none';
+
+      drawAccessoryAtAnchors(
+        ctx,
+        getDragAccessoryAnchors(frameCol),
+        cat.equippedHat ?? 'none',
+        cat.equippedGlasses ?? 'none',
+        'default',
+        cat.time
+      );
+
+      ctx.restore();
+      return;
+    }
+  }
   const isBabyStage = stage === 'baby';
   const isChildStage = stage === 'child';
   const babySheet = babySpriteSheets?.[cat.breed];
@@ -833,6 +993,14 @@ export function drawCat(
       ? Math.sin(cat.time * 10) * 0.025
       : 0;
 
+  const bedSleepAnchor =
+    cat.behavior === 'SLEEPING' && cat.sleepingBed
+      ? getCatBedSleepAnchor(cat.sleepingBed, rt, cat.sleepingBedDragging)
+      : null;
+  const anchorX = bedSleepAnchor ? screenPos.x + bedSleepAnchor.dx : screenPos.x;
+  const anchorY = bedSleepAnchor ? screenPos.y + bedSleepAnchor.dy : screenPos.y;
+  const bedCatMult = bedSleepAnchor ? bedSleepAnchor.catScaleMult : 1;
+
   ctx.save();
 
   // Recovery soft mint aura at feet
@@ -841,39 +1009,59 @@ export function drawCat(
     ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
     ctx.lineWidth = 3 * s;
     ctx.beginPath();
-    ctx.ellipse(screenPos.x, screenPos.y - 2 * s, 76 * s * pulse, 22 * s * pulse, 0, 0, Math.PI * 2);
+    ctx.ellipse(
+      anchorX,
+      anchorY - 2 * s * bedCatMult,
+      76 * s * bedCatMult * pulse,
+      22 * s * bedCatMult * pulse,
+      0,
+      0,
+      Math.PI * 2
+    );
     ctx.stroke();
   } else if (stage === 'adult' && cat.adultBranch === 'prima' && !cat.isSick) {
     const pulse = 0.9 + Math.sin(cat.time * 2.5) * 0.1;
     ctx.strokeStyle = 'rgba(250, 204, 21, 0.35)';
     ctx.lineWidth = 2.2 * s;
     ctx.beginPath();
-    ctx.ellipse(screenPos.x, screenPos.y - 2 * s, 72 * s * pulse, 20 * s * pulse, 0, 0, Math.PI * 2);
+    ctx.ellipse(
+      anchorX,
+      anchorY - 2 * s * bedCatMult,
+      72 * s * bedCatMult * pulse,
+      20 * s * bedCatMult * pulse,
+      0,
+      0,
+      Math.PI * 2
+    );
     ctx.stroke();
   }
 
-  // Floor shadow scaled per life stage
+  // Floor / cushion shadow scaled per life stage
   const shadowSizeMult =
     stage === 'baby' ? 0.68 : stage === 'child' ? 0.74 : stage === 'teen' ? 0.86 : 1;
   const shadowScale = Math.max(0.45, 1 - cat.z * 2.2) * shadowSizeMult;
-  ctx.fillStyle = 'rgba(35, 27, 20, 0.22)';
+  ctx.fillStyle = bedSleepAnchor ? 'rgba(35, 27, 20, 0.14)' : 'rgba(35, 27, 20, 0.22)';
   ctx.beginPath();
   ctx.ellipse(
-    screenPos.x,
-    screenPos.y - 2 * s,
-    66 * s * shadowScale,
-    18 * s * shadowScale,
+    anchorX,
+    anchorY - 2 * s * bedCatMult,
+    (bedSleepAnchor ? 46 : 66) * s * bedCatMult * shadowScale,
+    (bedSleepAnchor ? 12 : 18) * s * bedCatMult * shadowScale,
     0,
     0,
     Math.PI * 2
   );
   ctx.fill();
 
-  ctx.translate(screenPos.x, screenPos.y - jumpPx + weakSwayY);
+  ctx.translate(anchorX, anchorY - jumpPx + weakSwayY);
 
   // Floating status bubbles above cat
   if (cat.isSick) {
-    drawSickIndicator(ctx, s * (stage === 'baby' ? 0.82 : stage === 'child' ? 0.88 : 1), cat.time);
+    drawSickIndicator(
+      ctx,
+      s * bedCatMult * (stage === 'baby' ? 0.82 : stage === 'child' ? 0.88 : 1),
+      cat.time
+    );
   } else if (cat.isHungry && cat.behavior !== 'EATING' && cat.behavior !== 'SLEEPING') {
     drawHungryThoughtBubble(
       ctx,
@@ -884,8 +1072,8 @@ export function drawCat(
 
   ctx.rotate(rollTilt);
   ctx.scale(
-    s * cat.facing * (cat.scaleX * sickDroopX + rumbleScale),
-    s * (cat.scaleY * sickDroopY - rumbleScale * 0.7)
+    s * bedCatMult * cat.facing * (cat.scaleX * sickDroopX + rumbleScale),
+    s * bedCatMult * (cat.scaleY * sickDroopY - rumbleScale * 0.7)
   );
 
   if ((isChildStage && !hasChildSheet) || (isBabyStage && !hasBabySheet)) {
@@ -1649,7 +1837,21 @@ function getCatAccessoryAnchors(row: number, col: number): CatAccessoryAnchors {
         glasses: { x: 46, y: -70, rot: 0.03, scale: 0.98 },
         scarf: { x: 8, y: -64, rot: 0.05, scale: 0.96 },
       };
-    case 3: // SLEEPING (row 3 col 2)
+    case 3: // SLEEPING (excluding col 5 belly-up)
+      if (col === 1) {
+        return {
+          hat: { x: -16, y: -134, rot: -0.22, scale: 0.94 },
+          glasses: { x: -12, y: -102, rot: -0.22, scale: 0.92 },
+          scarf: { x: -8, y: -76, rot: -0.15, scale: 0.9 },
+        };
+      }
+      if (col === 3 || col === 4) {
+        return {
+          hat: { x: -14, y: -120, rot: -0.24, scale: 0.94 },
+          glasses: { x: -10, y: -90, rot: -0.24, scale: 0.92 },
+          scarf: { x: -6, y: -64, rot: -0.16, scale: 0.9 },
+        };
+      }
       return {
         hat: { x: 42, y: -84, rot: 0.04, scale: 0.94 },
         glasses: { x: 44.5, y: -45, rot: 0.02, scale: 0.9 },
@@ -1738,7 +1940,28 @@ function getBabyAccessoryAnchors(row: number, col: number): CatAccessoryAnchors 
         glasses: { x: 32, y: -60, rot: 0.03, scale: 0.88 },
         scarf: { x: 6, y: -46, rot: 0.06, scale: 0.85 },
       };
-    case 3: // SLEEPING
+    case 3: // SLEEPING (excluding col 5 belly-up)
+      if (col === 0) {
+        return {
+          hat: { x: 22, y: -92, rot: 0.14, scale: 0.86 },
+          glasses: { x: 24, y: -62, rot: 0.12, scale: 0.84 },
+          scarf: { x: 8, y: -44, rot: 0.1, scale: 0.82 },
+        };
+      }
+      if (col === 1) {
+        return {
+          hat: { x: -14, y: -102, rot: -0.22, scale: 0.84 },
+          glasses: { x: -10, y: -74, rot: -0.22, scale: 0.82 },
+          scarf: { x: -6, y: -52, rot: -0.15, scale: 0.8 },
+        };
+      }
+      if (col === 3 || col === 4) {
+        return {
+          hat: { x: -12, y: -93, rot: -0.24, scale: 0.84 },
+          glasses: { x: -8, y: -66, rot: -0.24, scale: 0.82 },
+          scarf: { x: -4, y: -45, rot: -0.16, scale: 0.8 },
+        };
+      }
       return {
         hat: { x: 28, y: -62, rot: 0.04, scale: 0.84 },
         glasses: { x: 30, y: -34, rot: 0.02, scale: 0.82 },

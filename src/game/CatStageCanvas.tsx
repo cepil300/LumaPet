@@ -77,6 +77,7 @@ import {
 } from '../utils/catCareSystem';
 import {
   BowlRenderState,
+  CAT_DRAG_SCRUFF_LOCAL_Y,
   CatRenderState,
   computeRoomTransform,
   drawCat,
@@ -87,6 +88,8 @@ import {
   drawRoomBackdrop,
   drawToolCursorHint,
   drawYarnToy,
+  getCatBedSleepAnchor,
+  getCatStageScale,
   Particle,
   RoomTransform,
   roomToScreen,
@@ -98,6 +101,7 @@ import {
   computeScreenRoomBounds,
   constrainItemPlacement,
   FloorObstacle,
+  ItemFootprint,
   TUB_FOOTPRINT,
 } from './roomPlacement';
 import {
@@ -153,6 +157,7 @@ const DEFAULT_BED_POS = { nx: 0.265, ny: 0.805 };
 const DEFAULT_TUB_POS = { nx: 0.745, ny: 0.815 };
 const BOWL_POS = { nx: 0.43, ny: 0.748 };
 const FLOOR_BOUNDS = { minX: 0.15, maxX: 0.84, minY: 0.68, maxY: 0.89 };
+const CAT_FOOTPRINT: ItemFootprint = { halfW: 0.034, padBack: 0.02, padFront: 0.015 };
 const BATH_ANIM_DURATION_SEC = 10.0;
 const PARTICLE_POOL_SIZE = 96;
 const PLAY_SESSION_SECONDS = 10;
@@ -286,6 +291,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     const babySpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const childSpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const bathSpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
+    const dragSpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const gameStateRef = useRef<GameState>(gameState);
     const toolModeRef = useRef<ToolMode>(toolMode);
     const previewBreedRef = useRef<CatBreed>(previewBreed);
@@ -437,6 +443,25 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       tubDragStartY: 0,
       tubDragOffsetNx: 0,
       tubDragOffsetNy: 0,
+
+      // Cat scruff drag-and-drop & swing state
+      catDragCandidate: false,
+      catDragZone: 'neck' as 'neck' | 'body',
+      isDraggingCat: false,
+      isDroppingFromDrag: false,
+      catDragStartX: 0,
+      catDragStartY: 0,
+      catDragPtrX: 0,
+      catDragPtrY: 0,
+      catDragOffsetX: 0,
+      catDragOffsetY: 0,
+      catDragTime: 0,
+      catSwingAngle: 0,
+      catSwingVel: 0,
+      catDragPrevPtrNx: 0,
+      catDragSmoothVx: 0,
+      catDropTargetNx: 0.52,
+      catDropTargetNy: 0.78,
 
       // Bathing walk + tub animation state
       walkingToBath: false,
@@ -660,6 +685,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (isRecovering && s.isSick) moodLabel = 'Pemulihan (Masih Sakit)';
       else if (isRecovering) moodLabel = 'Hampir Pulih Total';
       else if (s.isSick) moodLabel = 'Sedang Sakit';
+      else if (s.isDraggingCat) moodLabel = 'Sedang Digendong';
       else if (s.isBathing || s.walkingToBath) moodLabel = 'Sedang Mandi';
       else if (s.behavior === 'SLEEPING') {
         moodLabel =
@@ -836,6 +862,26 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         nx,
         ny,
         TUB_FOOTPRINT,
+        getRoomPlacementBounds(),
+        obstacles,
+        fallback
+      );
+    };
+
+    const constrainCatFloorPos = (
+      nx: number,
+      ny: number,
+      fallback?: { nx: number; ny: number }
+    ) => {
+      const s = simRef.current;
+      const obstacles: FloorObstacle[] = [
+        { kind: 'ellipse', cx: BOWL_POS.nx, cy: BOWL_POS.ny, rx: 0.036, ry: 0.018 },
+      ];
+      return constrainItemPlacement(
+        s.activeBackground,
+        nx,
+        ny,
+        CAT_FOOTPRINT,
         getRoomPlacementBounds(),
         obstacles,
         fallback
@@ -2353,6 +2399,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.isDraggingBed = false;
         s.tubDragCandidate = false;
         s.isDraggingTub = false;
+        s.catDragCandidate = false;
+        s.isDraggingCat = false;
+        s.isDroppingFromDrag = false;
+        s.catSwingAngle = 0;
+        s.catSwingVel = 0;
         s.walkingToBath = false;
         s.pendingBathId = null;
         s.isBathing = false;
@@ -2603,6 +2654,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.isDraggingBed = false;
         s.tubDragCandidate = false;
         s.isDraggingTub = false;
+        s.catDragCandidate = false;
+        s.isDraggingCat = false;
+        s.isDroppingFromDrag = false;
+        s.catSwingAngle = 0;
+        s.catSwingVel = 0;
         s.walkingToBath = false;
         s.pendingBathId = null;
         s.isBathing = false;
@@ -3095,6 +3151,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const bathSheetImg = new Image();
         bathSheetImg.src = CAT_BREEDS[breedKey].bathSpriteSheet;
         bathSpriteSheetsRef.current[breedKey] = bathSheetImg;
+
+        const dragSheetImg = new Image();
+        dragSheetImg.src = CAT_BREEDS[breedKey].dragSpriteSheet;
+        dragSpriteSheetsRef.current[breedKey] = dragSheetImg;
       });
 
       const canvas = canvasRef.current;
@@ -3124,7 +3184,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       window.addEventListener('resize', resize);
 
       const handleBlur = () => {
-        simRef.current.pointerDown = false;
+        const s = simRef.current;
+        s.pointerDown = false;
+        s.brushScrubAccum = 0;
+        s.petRubAccum = 0;
+        s.catDragCandidate = false;
+        s.bedDragCandidate = false;
+        s.isDraggingBed = false;
+        s.tubDragCandidate = false;
+        s.isDraggingTub = false;
+        if (s.isDraggingCat) {
+          finishCatScruffDragRef.current?.();
+        }
       };
       window.addEventListener('blur', handleBlur);
 
@@ -3484,7 +3555,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 if (s.zzzTimer <= 0) {
                   s.zzzTimer = 0.95;
                   const pScale = Math.max(0.55, rt.scale * 0.85);
-                  const cPos = roomToScreen(s.nx + 0.02, s.ny - 0.055, rt);
+                  const bedAnchor = getCatBedSleepAnchor(s.activeBed, rt, s.isDraggingBed);
+                  const baseSleepPos = roomToScreen(s.nx + 0.02, s.ny - 0.055, rt);
+                  const cPos = {
+                    x: baseSleepPos.x + bedAnchor.dx,
+                    y: baseSleepPos.y + bedAnchor.dy,
+                  };
                   spawnParticle('zzz', cPos.x + (Math.random() - 0.5) * 14 * pScale, cPos.y, {
                     vx: 11 * pScale,
                     vy: -26 * pScale,
@@ -4231,16 +4307,83 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
             }
 
-            // Cat vertical physics
-            if (s.z > 0 || s.vz !== 0) {
-              s.vz -= 1.65 * dt;
+            // Cat vertical physics & scruff-drag pendulum swing
+            if (s.isDraggingCat) {
+              s.catDragTime += dt;
+              s.catDragOffsetX *= Math.exp(-26 * dt);
+              s.catDragOffsetY *= Math.exp(-26 * dt);
+
+              const targetHeadX = s.catDragPtrX - s.catDragOffsetX;
+              const targetHeadY = s.catDragPtrY - s.catDragOffsetY;
+              const bounds = getRoomPlacementBounds();
+              const rawPtrNx = (targetHeadX - rt.offsetX) / rt.drawW;
+              const ptrNx = clamp(
+                rawPtrNx,
+                Math.max(0.03, bounds.minX),
+                Math.min(0.97, bounds.maxX)
+              );
+
+              s.nx = ptrNx;
+
+              const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
+              const headLocalPx = CAT_DRAG_SCRUFF_LOCAL_Y * catDrawScale;
+              const minHoverPx = 0.055 * rt.drawH;
+              const maxDragFloorNy = Math.max(
+                bounds.maxY,
+                (viewH - 8 - rt.offsetY) / Math.max(1, rt.drawH)
+              );
+              const naturalFloorY = targetHeadY - headLocalPx + minHoverPx;
+              const naturalFloorNy = (naturalFloorY - rt.offsetY) / rt.drawH;
+              s.ny = clamp(naturalFloorNy, Math.max(0.66, bounds.minY), maxDragFloorNy);
+
+              const floorScr = roomToScreen(s.nx, s.ny, rt);
+              const desiredJumpPx = floorScr.y + headLocalPx - targetHeadY;
+              s.z = clamp(desiredJumpPx / rt.drawH, 0.0, 1.15);
+              s.vz = 0;
+
+              const rawVx = (ptrNx - s.catDragPrevPtrNx) / Math.max(0.004, dt);
+              s.catDragPrevPtrNx = ptrNx;
+              const smoothAlpha = 1 - Math.exp(-16 * dt);
+              s.catDragSmoothVx += (rawVx - s.catDragSmoothVx) * smoothAlpha;
+
+              const targetSwing = clamp(s.catDragSmoothVx * 1.15, -1.2, 1.2);
+              const springAccel = (targetSwing - s.catSwingAngle) * 30 - s.catSwingVel * 6.0;
+              s.catSwingVel += springAccel * dt;
+              s.catSwingAngle = clamp(s.catSwingAngle + s.catSwingVel * dt, -1.25, 1.25);
+            } else if (s.z > 0 || s.vz !== 0) {
+              if (s.isDroppingFromDrag) {
+                const lerpAlpha = 1 - Math.exp(-14 * dt);
+                s.nx += (s.catDropTargetNx - s.nx) * lerpAlpha;
+                s.ny += (s.catDropTargetNy - s.ny) * lerpAlpha;
+                s.catSwingAngle *= Math.exp(-10 * dt);
+              }
+              s.vz -= (s.isDroppingFromDrag ? 2.1 : 1.65) * dt;
               s.z += s.vz * dt;
               if (s.z <= 0) {
+                const wasDragDrop = s.isDroppingFromDrag;
                 s.z = 0;
                 s.vz = 0;
-                s.scaleX = 1.12;
-                s.scaleY = 0.89;
-              } else if (s.z > 0.085) {
+                s.isDroppingFromDrag = false;
+                s.catSwingAngle = 0;
+                s.catSwingVel = 0;
+                s.scaleX = wasDragDrop ? 1.15 : 1.12;
+                s.scaleY = wasDragDrop ? 0.85 : 0.89;
+                if (wasDragDrop) {
+                  s.nx = s.catDropTargetNx;
+                  s.ny = s.catDropTargetNy;
+                  soundEngine.playBounce();
+                  const landScr = roomToScreen(s.nx, s.ny, rt);
+                  for (let i = 0; i < 4; i++) {
+                    spawnParticle('dust_puff', landScr.x + (Math.random() - 0.5) * 44, landScr.y, {
+                      color: 'rgba(180, 158, 128, 0.55)',
+                      size: 6.5 + Math.random() * 3,
+                      vx: (Math.random() - 0.5) * 65,
+                      vy: -14 - Math.random() * 14,
+                      maxLife: 0.55,
+                    });
+                  }
+                }
+              } else if (!s.isDroppingFromDrag && s.z > 0.085) {
                 s.z = 0.085;
                 if (s.vz > 0) s.vz = 0;
               }
@@ -4248,7 +4391,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
             // Cat Behavior State Machine
             s.isSprinting = false;
-            if (s.isBathing) {
+            if (s.isDraggingCat) {
+              s.behavior = 'IDLE';
+              s.idleZoomies = false;
+              s.walkingToBath = false;
+            } else if (s.isBathing) {
               s.nx = s.tubNx;
               s.ny = s.tubNy;
               s.bathTimer -= dt;
@@ -4576,7 +4723,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
             }
 
-            if (s.behavior !== 'SLEEPING') {
+            if (s.behavior !== 'SLEEPING' && !s.isDraggingCat && !s.isDroppingFromDrag) {
               s.nx = clamp(s.nx, FLOOR_BOUNDS.minX, FLOOR_BOUNDS.maxX);
               s.ny = clamp(s.ny, FLOOR_BOUNDS.minY, FLOOR_BOUNDS.maxY);
             }
@@ -4673,6 +4820,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           equippedHat: s.equippedHat,
           equippedGlasses: s.equippedGlasses,
           equippedScarf: s.equippedScarf,
+          isDragging: s.isDraggingCat,
+          dragSwing: s.catSwingAngle,
+          dragTime: s.catDragTime,
+          sleepingBed: s.behavior === 'SLEEPING' ? s.activeBed : undefined,
+          sleepingBedDragging: s.behavior === 'SLEEPING' && s.isDraggingBed,
         };
 
         const bathProgress = s.isBathing
@@ -4742,7 +4894,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             rt,
             spriteSheetsRef.current,
             babySpriteSheetsRef.current,
-            childSpriteSheetsRef.current
+            childSpriteSheetsRef.current,
+            dragSpriteSheetsRef.current
           );
         }
 
@@ -4804,6 +4957,88 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return Math.hypot(px - tubScr.x, py - tubScr.y) <= tubRadius;
     };
 
+    const getCatScruffScreenPos = (rt: RoomTransform) => {
+      const s = simRef.current;
+      const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
+      const baseScr = roomToScreen(s.nx, s.ny, rt);
+      const jumpPx = s.z * rt.drawH;
+      if (s.isDraggingCat) {
+        return {
+          x: baseScr.x,
+          y: baseScr.y - jumpPx + CAT_DRAG_SCRUFF_LOCAL_Y * catDrawScale,
+          scale: catDrawScale,
+        };
+      }
+      const xBias = s.behavior === 'SLEEPING' ? 24 : 26;
+      const yBias = s.behavior === 'SLEEPING' ? -44 : -94;
+      return {
+        x: baseScr.x + s.facing * xBias * catDrawScale,
+        y: baseScr.y - jumpPx + yBias * catDrawScale,
+        scale: catDrawScale,
+      };
+    };
+
+    const isPointOnCatNeck = (px: number, py: number, rt: RoomTransform): boolean => {
+      const s = simRef.current;
+      if (s.isBathing || s.walkingToBath || s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
+        return false;
+      }
+      const scruff = getCatScruffScreenPos(rt);
+      const rx = 62 * Math.max(0.7, scruff.scale);
+      const ry = 56 * Math.max(0.7, scruff.scale);
+      const dx = (px - scruff.x) / rx;
+      const dy = (py - scruff.y) / ry;
+      return dx * dx + dy * dy <= 1;
+    };
+
+    const startCatScruffDrag = (px: number, py: number) => {
+      const s = simRef.current;
+      const rt = s.lastRoomTransform;
+      const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
+      const baseScr = roomToScreen(s.nx, s.ny, rt);
+      const jumpPx = s.z * rt.drawH;
+      const headTopX = baseScr.x;
+      const headTopY = baseScr.y - jumpPx - 125 * catDrawScale;
+      const bounds = getRoomPlacementBounds();
+      s.isDraggingCat = true;
+      s.isDroppingFromDrag = false;
+      s.catDragTime = 0;
+      s.catSwingAngle = 0;
+      s.catSwingVel = 0;
+      s.catDragSmoothVx = 0;
+      s.catDragPtrX = px;
+      s.catDragPtrY = py;
+      s.catDragOffsetX = clamp(px - headTopX, -28, 28);
+      s.catDragOffsetY = clamp(py - headTopY, -24, 24);
+      s.catDragPrevPtrNx = clamp(
+        (px - s.catDragOffsetX - rt.offsetX) / rt.drawW,
+        Math.max(0.03, bounds.minX),
+        Math.min(0.97, bounds.maxX)
+      );
+      s.behavior = 'IDLE';
+      s.idleZoomies = false;
+      s.walkingToBath = false;
+      soundEngine.unlock();
+      soundEngine.playMeow(1.18);
+      onHudUpdate(buildSnapshot());
+    };
+
+    const finishCatScruffDrag = () => {
+      const s = simRef.current;
+      if (!s.isDraggingCat) return;
+      s.isDraggingCat = false;
+      s.catDragCandidate = false;
+      const dropPos = constrainCatFloorPos(s.nx, s.ny, { nx: 0.52, ny: 0.78 });
+      s.catDropTargetNx = dropPos.nx;
+      s.catDropTargetNy = dropPos.ny;
+      s.isDroppingFromDrag = true;
+      s.vz = Math.min(s.vz, -0.04);
+      s.idleDecisionTimer = 1.6;
+      onHudUpdate(buildSnapshot());
+    };
+    const finishCatScruffDragRef = useRef<() => void>(finishCatScruffDrag);
+    finishCatScruffDragRef.current = finishCatScruffDrag;
+
     const updateCanvasCursor = (px: number, py: number) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -4818,9 +5053,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         canvas.style.cursor = "url('/assets/ui/cursor_brush.png') 10 10, grab";
       } else if (mode === 'TOY') {
         canvas.style.cursor = 'crosshair';
-      } else if (s.isDraggingBed || s.isDraggingTub) {
+      } else if (s.isDraggingCat || s.isDraggingBed || s.isDraggingTub) {
         canvas.style.cursor = 'grabbing';
       } else if (
+        isPointOnCatNeck(px, py, s.lastRoomTransform) ||
         isPointOnBed(px, py, s.lastRoomTransform) ||
         isPointOnTub(px, py, s.lastRoomTransform)
       ) {
@@ -4840,7 +5076,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
       const s = simRef.current;
       const rt = s.lastRoomTransform;
-      const catScr = roomToScreen(s.nx, s.ny - 0.045, rt);
+      const rawCatScr = roomToScreen(s.nx, s.ny - 0.045, rt);
+      const sleepAnchor =
+        s.behavior === 'SLEEPING' ? getCatBedSleepAnchor(s.activeBed, rt, s.isDraggingBed) : null;
+      const catScr = sleepAnchor
+        ? { x: rawCatScr.x + sleepAnchor.dx, y: rawCatScr.y + sleepAnchor.dy }
+        : rawCatScr;
       const hitRadius = 72 * Math.max(0.7, rt.scale);
       const distToCat = Math.hypot(px - catScr.x, py - catScr.y);
 
@@ -5108,14 +5349,19 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           updateCanvasCursor(px, py);
         }}
         onPointerLeave={() => {
-          simRef.current.pointerInside = false;
-          simRef.current.pointerDown = false;
-          simRef.current.brushScrubAccum = 0;
-          simRef.current.petRubAccum = 0;
-          simRef.current.bedDragCandidate = false;
-          simRef.current.isDraggingBed = false;
-          simRef.current.tubDragCandidate = false;
-          simRef.current.isDraggingTub = false;
+          const s = simRef.current;
+          s.pointerInside = false;
+          s.pointerDown = false;
+          s.brushScrubAccum = 0;
+          s.petRubAccum = 0;
+          s.bedDragCandidate = false;
+          s.isDraggingBed = false;
+          s.tubDragCandidate = false;
+          s.isDraggingTub = false;
+          s.catDragCandidate = false;
+          if (s.isDraggingCat) {
+            finishCatScruffDrag();
+          }
         }}
         onPointerDown={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
@@ -5128,6 +5374,27 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
           if (gameStateRef.current === 'PLAYING' && toolModeRef.current === 'PET') {
             const rt = s.lastRoomTransform;
+            const catScr = roomToScreen(s.nx, s.ny - 0.045, rt);
+            const hitRadius = 72 * Math.max(0.7, rt.scale);
+            const distToCat = Math.hypot(px - catScr.x, py - catScr.y);
+            const onCatNeck = isPointOnCatNeck(px, py, rt);
+            const canLiftCat =
+              !s.isBathing &&
+              !s.walkingToBath &&
+              s.behavior !== 'SLEEPING' &&
+              s.sleepMode === 'none';
+
+            if (canLiftCat && (onCatNeck || distToCat <= hitRadius)) {
+              s.catDragCandidate = true;
+              s.catDragZone = onCatNeck ? 'neck' : 'body';
+              s.catDragStartX = px;
+              s.catDragStartY = py;
+              s.lastPointerX = px;
+              s.lastPointerY = py;
+              updateCanvasCursor(px, py);
+              return;
+            }
+
             const onBed = isPointOnBed(px, py, rt);
             const onTub = isPointOnTub(px, py, rt);
             if (onBed || onTub) {
@@ -5140,9 +5407,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     Math.hypot(px - bedScr.x, py - bedScr.y));
 
               const roomPt = screenToRoom(px, py, rt);
-              const catScr = roomToScreen(s.nx, s.ny - 0.045, rt);
-              const hitRadius = 72 * Math.max(0.7, rt.scale);
-              const distToCat = Math.hypot(px - catScr.x, py - catScr.y);
 
               if (pickTub) {
                 s.tubDragCandidate = true;
@@ -5180,6 +5444,32 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           const s = simRef.current;
           s.pointerX = px;
           s.pointerY = py;
+
+          if (s.catDragCandidate && s.pointerDown) {
+            if (!s.isDraggingCat) {
+              const dx = px - s.catDragStartX;
+              const dy = py - s.catDragStartY;
+              const moveDist = Math.hypot(dx, dy);
+              if (s.catDragZone === 'neck') {
+                if (moveDist > 6) {
+                  startCatScruffDrag(px, py);
+                }
+              } else {
+                // On lower body: lifting upward picks up the cat, horizontal rubbing falls back to petting
+                if (dy < -10 && -dy >= Math.abs(dx) * 0.65) {
+                  startCatScruffDrag(px, py);
+                } else if (moveDist > 10) {
+                  s.catDragCandidate = false;
+                }
+              }
+            }
+            if (s.isDraggingCat) {
+              s.catDragPtrX = px;
+              s.catDragPtrY = py;
+              updateCanvasCursor(px, py);
+              return;
+            }
+          }
 
           if (s.tubDragCandidate && s.pointerDown) {
             if (!s.isDraggingTub && Math.hypot(px - s.tubDragStartX, py - s.tubDragStartY) > 6) {
@@ -5266,6 +5556,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           const px = e.clientX - rect.left;
           const py = e.clientY - rect.top;
           const s = simRef.current;
+          const wasCatCandidate = s.catDragCandidate;
+          const wasDraggingCat = s.isDraggingCat;
           const wasBedCandidate = s.bedDragCandidate;
           const wasDraggingBed = s.isDraggingBed;
           const wasTubCandidate = s.tubDragCandidate;
@@ -5273,12 +5565,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.pointerDown = false;
           s.brushScrubAccum = 0;
           s.petRubAccum = 0;
+          s.catDragCandidate = false;
           s.bedDragCandidate = false;
           s.isDraggingBed = false;
           s.tubDragCandidate = false;
           s.isDraggingTub = false;
 
-          if (wasDraggingTub) {
+          if (wasDraggingCat) {
+            finishCatScruffDrag();
+          } else if (wasDraggingTub) {
             soundEngine.playBounce();
             const tubScr = roomToScreen(s.tubNx, s.tubNy, s.lastRoomTransform);
             for (let i = 0; i < 4; i++) {
@@ -5304,10 +5599,24 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               });
             }
             onAutoSaveNeededRef.current?.();
-          } else if (wasBedCandidate || wasTubCandidate) {
+          } else if (wasCatCandidate || wasBedCandidate || wasTubCandidate) {
             handlePointerInteraction(e.clientX, e.clientY, true);
           }
           updateCanvasCursor(px, py);
+        }}
+        onPointerCancel={() => {
+          const s = simRef.current;
+          s.pointerDown = false;
+          s.brushScrubAccum = 0;
+          s.petRubAccum = 0;
+          s.catDragCandidate = false;
+          s.bedDragCandidate = false;
+          s.isDraggingBed = false;
+          s.tubDragCandidate = false;
+          s.isDraggingTub = false;
+          if (s.isDraggingCat) {
+            finishCatScruffDrag();
+          }
         }}
       />
     );

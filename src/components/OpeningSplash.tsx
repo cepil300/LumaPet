@@ -55,18 +55,16 @@ export const OpeningSplash: React.FC<OpeningSplashProps> = ({ onFinish }) => {
       onClick={triggerExit}
       aria-label="Pembukaan LumaPet"
       className={`fixed inset-0 z-[100] bg-[#FFFFFF] flex items-center justify-center transition-opacity duration-700 ease-in-out select-none ${
-        phase === 'hold'
-          ? 'opacity-100 cursor-pointer'
-          : phase === 'exit'
+        phase === 'exit'
           ? 'opacity-0 pointer-events-none'
-          : 'opacity-0'
+          : 'opacity-100 cursor-pointer'
       }`}
     >
       <img
-        src="/assets/aistudio/image_e0ece965.png"
+        src="/assets/lumapet_logo.png"
         alt="LumaPet"
-        className={`w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 max-h-[72dvh] object-contain transition-transform duration-1000 ease-out ${
-          phase === 'enter' ? 'scale-95' : 'scale-100'
+        className={`w-[min(86vw,540px)] sm:w-[min(80vw,620px)] h-auto max-h-[65dvh] object-contain transition-all duration-700 ease-out ${
+          phase === 'enter' ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
         }`}
         draggable={false}
       />

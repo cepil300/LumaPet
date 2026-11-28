@@ -251,9 +251,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             className="relative m-0 flex items-center justify-center"
           >
             <img
-              src="/assets/aistudio/image_e0ece965.png"
+              src="/assets/lumapet_logo.png"
               alt="LumaPet"
-              className="w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 short:w-20 short:h-20 max-w-[88vw] rounded-[19.5%] object-contain drop-shadow-[0_6px_0_rgba(78,39,15,0.34)]"
+              className="w-64 sm:w-80 md:w-96 short:w-56 h-auto max-w-[88vw] object-contain drop-shadow-[0_5px_0_rgba(78,39,15,0.34)]"
               draggable={false}
             />
           </h1>

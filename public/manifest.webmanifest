@@ -1,18 +1,32 @@
 {
+  "id": "/",
   "name": "Rumah Kucing — LumaPet",
   "short_name": "LumaPet",
   "description": "Game simulasi pelihara kucing virtual yang hangat, interaktif, dan penuh kasih.",
   "start_url": "/",
+  "scope": "/",
   "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#1F2B26",
   "theme_color": "#1F2B26",
   "icons": [
     {
-      "src": "/assets/aistudio/image_e0ece965.png",
-      "sizes": "1024x1024",
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
