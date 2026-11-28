@@ -1,15 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { getTranslations } from '../i18n/translations';
+import { AppLanguage } from '../types/game';
 import { isTouchOrAndroid, requestImmersiveFullscreen } from '../utils/fullscreen';
 
 interface OpeningSplashProps {
+  language?: AppLanguage;
   onFinish: () => void;
 }
 
 type SplashPhase = 'enter' | 'hold' | 'exit';
 
-export const OpeningSplash: React.FC<OpeningSplashProps> = ({ onFinish }) => {
+export const OpeningSplash: React.FC<OpeningSplashProps> = ({ language = 'id', onFinish }) => {
   const [phase, setPhase] = useState<SplashPhase>('enter');
   const finishedRef = useRef(false);
+  const t = getTranslations(language);
 
   const triggerExit = () => {
     if (isTouchOrAndroid()) {
@@ -55,7 +59,7 @@ export const OpeningSplash: React.FC<OpeningSplashProps> = ({ onFinish }) => {
       onClick={triggerExit}
       onTouchEnd={triggerExit}
       onPointerUp={triggerExit}
-      aria-label="Pembukaan LumaPet"
+      aria-label={t.app.splashAria}
       className={`fixed inset-0 z-[100] bg-[#FFFFFF] flex items-center justify-center transition-opacity duration-700 ease-in-out select-none ${
         phase === 'exit'
           ? 'opacity-0 pointer-events-none'

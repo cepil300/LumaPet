@@ -1,5 +1,7 @@
+import { getTranslations } from '../i18n/translations';
 import {
   AdultEvolutionBranch,
+  AppLanguage,
   AUTO_SLEEP_CONFIG,
   DayPhase,
   DrowsyStage,
@@ -663,6 +665,11 @@ export type CareNotificationPermission = NotificationPermission | 'unsupported';
 
 let lowHungerTimerId: number | null = null;
 let notifiedSinceLastFeed = false;
+let activeCareLanguage: AppLanguage = 'id';
+
+export function setCareNotificationLanguage(lang: AppLanguage): void {
+  activeCareLanguage = lang;
+}
 
 export function getCareNotificationPermission(): CareNotificationPermission {
   if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -693,9 +700,13 @@ export function sendLowHungerNotification(): void {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
 
+  const t = getTranslations(activeCareLanguage);
+  const title = t.app.lowHungerNotifTitle;
+  const body = t.app.lowHungerNotifBody || LOW_HUNGER_NOTIFICATION_MESSAGE;
+
   try {
-    new Notification('Rumah Kucing', {
-      body: LOW_HUNGER_NOTIFICATION_MESSAGE,
+    new Notification(title, {
+      body,
       icon: '/assets/aistudio/image_e0ece965.png',
       tag: 'rumah-kucing-hunger-20',
     });
@@ -704,8 +715,8 @@ export function sendLowHungerNotification(): void {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.ready
         .then((reg) =>
-          reg.showNotification('Rumah Kucing', {
-            body: LOW_HUNGER_NOTIFICATION_MESSAGE,
+          reg.showNotification(title, {
+            body,
             icon: '/assets/aistudio/image_e0ece965.png',
             tag: 'rumah-kucing-hunger-20',
           })

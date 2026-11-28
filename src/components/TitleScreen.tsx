@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { ArrowLeft, Cloud, CloudOff, Loader2, LogOut, RefreshCw, X } from 'lucide-react';
+import { getTranslations } from '../i18n/translations';
 import {
   CAT_BREEDS,
   CatBreed,
   GameSettings,
-  LIFE_STAGES,
   SaveData,
 } from '../types/game';
 import { CatAvatarSvg } from './CatAvatarSvg';
@@ -16,6 +16,7 @@ import {
   PixelPawButtonIcon,
   PixelPlayButtonIcon,
 } from './CuteGameIcons';
+import { LanguageMenuButton } from './LanguageMenuButton';
 import { SettingsModalContent } from './SettingsModalContent';
 import { CatEarsHeaderPlaque, CatPortraitMedallion } from './WoodPanelChrome';
 
@@ -117,6 +118,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [catName, setCatName] = useState(CAT_BREEDS[selectedBreed].defaultName);
   const [tick, setTick] = useState(0);
+  const t = getTranslations(settings.language);
 
   const handleBreedPick = (breed: CatBreed) => {
     onSelectBreed(breed);
@@ -192,7 +194,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       {/* Bright Tatami Room Backdrop */}
       <img
         src="/assets/aistudio/image_8ba7ea28.png"
-        alt="Latar kamar tatami Rumah Kucing"
+        alt={t.title.backdropAlt}
         className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none select-none"
         draggable={false}
       />
@@ -260,7 +262,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       {subView === 'MENU' && (
         <div
           data-ui-id="title-google-cloud-btn"
-          data-ui-label="Tautan Akun Google"
+          data-ui-label={t.title.linkGoogle}
           className="absolute top-3 left-3 sm:top-5 sm:left-5 mobile:top-2 mobile:left-2.5 z-20 flex flex-col items-start gap-2"
         >
           {googleUser ? (
@@ -270,7 +272,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 onClick={() => setAccountMenuOpen((prev) => !prev)}
                 className="min-h-[44px] mobile:min-h-[34px] px-3 sm:px-3.5 py-1.5 mobile:px-2 mobile:py-1 rounded-xl mobile:rounded-lg bg-[#FFF6E5]/95 border-[2.5px] mobile:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_3px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2 mobile:gap-1.5 cursor-pointer max-w-[230px] sm:max-w-[260px] mobile:max-w-[175px]"
                 aria-expanded={accountMenuOpen}
-                title="Kelola tautan akun Google & Cloud Save"
+                title={t.title.manageCloudTooltip}
               >
                 <span className="relative shrink-0 flex items-center justify-center w-6 h-6 mobile:w-5 mobile:h-5 rounded-full bg-white border border-[#6E3B1B]/30">
                   <GoogleLogoIcon className="w-4 h-4 mobile:w-3 mobile:h-3" />
@@ -286,23 +288,23 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 </span>
                 <span className="flex flex-col items-start text-left leading-tight min-w-0">
                   <span className="font-display font-extrabold text-xs sm:text-[13px] mobile:text-[10.5px] text-[#5A2D12] truncate max-w-[140px] sm:max-w-[170px] mobile:max-w-[115px]">
-                    {googleUser.displayName || googleUser.email || 'Akun Google'}
+                    {googleUser.displayName || googleUser.email || t.title.googleAccount}
                   </span>
                   <span className="inline-flex items-center gap-1 text-[10px] mobile:text-[8.5px] font-bold text-[#2D6A4F]">
                     {cloudSyncStatus === 'loading' || cloudSyncStatus === 'syncing' ? (
                       <>
                         <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                        <span>Sinkron Cloud...</span>
+                        <span>{t.title.cloudSyncing}</span>
                       </>
                     ) : cloudSyncStatus === 'error' ? (
                       <>
                         <CloudOff className="w-2.5 h-2.5 text-[#DC2626]" />
-                        <span className="text-[#DC2626]">Gagal Sinkron</span>
+                        <span className="text-[#DC2626]">{t.title.cloudError}</span>
                       </>
                     ) : (
                       <>
                         <Cloud className="w-2.5 h-2.5" />
-                        <span>Cloud Terhubung</span>
+                        <span>{t.title.cloudConnected}</span>
                       </>
                     )}
                   </span>
@@ -318,7 +320,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                       </span>
                       <div className="min-w-0">
                         <p className="font-display font-extrabold text-xs text-[#4E270F] truncate">
-                          {googleUser.displayName || 'Akun Google'}
+                          {googleUser.displayName || t.title.googleAccount}
                         </p>
                         <p className="text-[11px] font-semibold text-[#7A4928] truncate">
                           {googleUser.email}
@@ -329,7 +331,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                       type="button"
                       onClick={() => setAccountMenuOpen(false)}
                       className="p-1 rounded-lg text-[#7A4928] hover:bg-[#F5E4C8] cursor-pointer"
-                      aria-label="Tutup info akun"
+                      aria-label={t.title.closeAccountMenu}
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -337,8 +339,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
                   <div className="px-2.5 py-2 rounded-xl bg-[#ECFDF5] border border-[#2D6A4F]/35 text-[11px] font-bold text-[#166534]">
                     {existingSave
-                      ? `Cloud Save siap: ${existingSave.name} (Hari ke-${existingSave.day})`
-                      : 'Terhubung · Progres baru akan otomatis tersimpan ke cloud'}
+                      ? t.title.cloudSaveReady(existingSave.name, existingSave.day)
+                      : t.title.cloudAutoReady}
                   </div>
 
                   <div className="grid grid-cols-1 gap-1.5">
@@ -355,7 +357,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                           cloudSyncStatus === 'loading' ? 'animate-spin' : ''
                         }`}
                       />
-                      <span>Muat Ulang dari Cloud</span>
+                      <span>{t.title.reloadCloud}</span>
                     </button>
 
                     <button
@@ -367,7 +369,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                       className="w-full px-3 py-2 min-h-[38px] rounded-xl bg-[#FFFDF8] border-2 border-[#DC2626]/40 text-xs font-display font-extrabold text-[#B91C1C] hover:bg-[#FEF2F2] transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <LogOut className="w-3.5 h-3.5" />
-                      <span>Putuskan Akun Google</span>
+                      <span>{t.title.unlinkGoogle}</span>
                     </button>
                   </div>
                 </div>
@@ -379,7 +381,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               disabled={!authReady || cloudSyncStatus === 'loading'}
               onClick={onLinkGoogle}
               className="min-h-[44px] mobile:min-h-[34px] px-3 sm:px-3.5 py-1.5 mobile:px-2 mobile:py-1 rounded-xl mobile:rounded-lg bg-[#FFF6E5]/95 border-[2.5px] mobile:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_3px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2 mobile:gap-1.5 cursor-pointer disabled:opacity-70"
-              title="Kaitkan akun Google untuk menyimpan dan memuat progres dari cloud"
+              title={t.title.linkGoogleTooltip}
             >
               <span className="w-6 h-6 mobile:w-5 mobile:h-5 rounded-full bg-white border border-[#6E3B1B]/30 flex items-center justify-center shrink-0">
                 {cloudSyncStatus === 'loading' ? (
@@ -391,11 +393,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               <span className="flex flex-col items-start text-left leading-tight">
                 <span className="font-display font-extrabold text-xs sm:text-[13px] mobile:text-[10.5px] text-[#5A2D12] whitespace-nowrap">
                   {cloudSyncStatus === 'loading'
-                    ? 'Menghubungkan...'
-                    : 'Kaitkan Akun Google'}
+                    ? t.title.connecting
+                    : t.title.linkGoogle}
                 </span>
                 <span className="hidden sm:inline mobile:hidden text-[10px] font-bold text-[#7A4928]">
-                  Cloud Save Otomatis
+                  {t.title.linkGoogleHint}
                 </span>
               </span>
             </button>
@@ -408,7 +410,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 type="button"
                 onClick={onDismissCloudError}
                 className="shrink-0 text-[#991B1B] hover:opacity-75 cursor-pointer"
-                aria-label="Tutup pesan"
+                aria-label={t.title.closeMessage}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -420,19 +422,19 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       {/* Top-Right: Square Sound Button (absolute so it doesn't consume vertical hero space on short screens) */}
       <div
         data-ui-id="title-sound-btn"
-        data-ui-label="Tombol Suara"
+        data-ui-label={t.title.soundAlt}
         className="absolute top-3 right-3 sm:top-5 sm:right-5 mobile:top-2 mobile:right-2.5 z-20 flex items-center gap-2"
       >
         <button
           type="button"
           onClick={() => onUpdateSettings({ muted: !settings.muted })}
           className="relative min-w-[44px] min-h-[44px] mobile:min-w-[34px] mobile:min-h-[34px] flex items-center justify-center bg-transparent border-0 p-0 hover:scale-105 active:scale-95 transition-transform cursor-pointer"
-          aria-label={settings.muted ? 'Nyalakan suara' : 'Matikan suara'}
-          title={settings.muted ? 'Nyalakan suara' : 'Matikan suara'}
+          aria-label={settings.muted ? t.title.soundToggleOn : t.title.soundToggleOff}
+          title={settings.muted ? t.title.soundToggleOn : t.title.soundToggleOff}
         >
           <img
             src="/assets/ui/btn_sound.png"
-            alt="Suara"
+            alt={t.title.soundAlt}
             className={`w-12 h-12 mobile:w-8 mobile:h-8 object-contain drop-shadow-[0_3px_0_rgba(78,39,15,0.35)] ${
               settings.muted ? 'opacity-75 grayscale-[30%]' : ''
             }`}
@@ -481,10 +483,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
           <p
             data-ui-id="title-subtitle"
-            data-ui-label="Subjudul"
+            data-ui-label={t.title.subtitle}
             className="mt-2 short:mt-1 font-display font-bold text-sm sm:text-base md:text-lg short:text-xs text-[#FFFDF7] menu-text-outline"
           >
-            Rawat, elus, dan main bersama sahabat berbulu
+            {t.title.subtitle}
           </p>
         </div>
 
@@ -495,7 +497,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               <div className="wood-menu-panel rounded-2xl short:rounded-xl border-[3px] border-[#6E3B1B] shadow-[inset_0_3px_0_#FFFBF2,0_6px_0_#6E3B1B] p-5 short:p-3.5">
                 <div className="flex items-center justify-between mb-3 short:mb-2">
                   <h2 className="font-display text-lg short:text-base font-extrabold text-[#5A2D12]">
-                    Pilih Kucing untuk Diadopsi
+                    {t.title.adoptTitle}
                   </h2>
                   <button
                     type="button"
@@ -503,13 +505,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     className="inline-flex items-center gap-1 text-xs font-bold text-[#7A4928] hover:text-[#5A2D12] py-1.5 px-2.5 min-h-[36px] rounded-lg bg-[#FFFDF8] border-2 border-[#6E3B1B]/30 cursor-pointer"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Kembali</span>
+                    <span>{t.common.back}</span>
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 short:grid-cols-4 gap-2 mb-4 short:mb-2.5">
                   {(Object.keys(CAT_BREEDS) as CatBreed[]).map((breedKey) => {
                     const b = CAT_BREEDS[breedKey];
+                    const breedLoc = t.catalog.breeds[breedKey];
                     const active = selectedBreed === breedKey;
                     return (
                       <button
@@ -529,7 +532,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                           {b.defaultName}
                         </span>
                         <span className="text-[11px] short:text-[10px] text-[#7A4928] leading-tight mt-0.5">
-                          {b.label}
+                          {breedLoc.label}
                         </span>
                       </button>
                     );
@@ -542,9 +545,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                       htmlFor="cat-name-input"
                       className="block text-xs short:text-[11px] font-bold text-[#5A2D12] mb-1.5 short:mb-1"
                     >
-                      Nama Panggilan Kucing ·{' '}
+                      {t.title.catNameLabel} ·{' '}
                       <span className="font-medium text-[#7A4928]">
-                        {CAT_BREEDS[selectedBreed].personality}
+                        {t.catalog.breeds[selectedBreed].personality}
                       </span>
                     </label>
                     <input
@@ -563,7 +566,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     onClick={() => onStartNew(catName, selectedBreed)}
                     className="w-full short:w-auto px-6 py-3 short:px-5 short:py-2 min-h-[48px] short:min-h-[42px] rounded-xl bg-gradient-to-b from-[#EE8B3B] to-[#D4671F] border-[3px] border-[#5E2F12] shadow-[0_3px_0_#5E2F12] text-white font-display font-black text-base short:text-sm hover:brightness-105 transition-all whitespace-nowrap cursor-pointer menu-text-outline"
                   >
-                    Mulai Bermain
+                    {t.title.startPlaying}
                   </button>
                 </div>
               </div>
@@ -583,7 +586,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
                   <div className="relative flex-1 w-full max-w-[540px] short:max-w-[490px] mt-3 md:mt-0 short:mt-0">
                     <div className="absolute -top-6 sm:-top-7 short:-top-4 left-1/2 -translate-x-1/2 z-20">
-                      <CatEarsHeaderPlaque title="Pengaturan" />
+                      <CatEarsHeaderPlaque title={t.settings.title} />
                     </div>
 
                     <div className="wood-modal-frame rounded-3xl short:rounded-2xl p-2.5 sm:p-3 short:p-2 border-[3px] short:border-2 border-[#5E2F12] shadow-[inset_0_2px_0_rgba(255,235,205,0.45),0_8px_0_rgba(58,28,10,0.45)]">
@@ -606,25 +609,37 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         )}
       </div>
 
-      {/* Bottom Area: Keluar at bottom-left & 3 horizontal main buttons centered */}
+      {/* Bottom Area: Keluar at bottom-left, 3 horizontal main buttons centered, Bahasa at bottom-right */}
       {subView === 'MENU' && (
         <div className="relative z-10 px-4 sm:px-8 pb-5 sm:pb-7 short:px-3 short:pb-2.5 pt-1 flex flex-col-reverse sm:flex-row items-center justify-center gap-3 short:gap-2 safe-inset-hud">
-          {/* Bottom-Left Compact Keluar Button */}
-          <button
-            type="button"
-            data-ui-id="title-quit-btn"
-            data-ui-label="Tombol Keluar"
-            onClick={() => setQuitConfirmOpen(true)}
-            className="sm:absolute short:absolute sm:left-6 sm:bottom-6 short:left-3 short:bottom-2.5 flex flex-col items-center gap-1 short:gap-0.5 min-w-[44px] min-h-[44px] group cursor-pointer bg-transparent border-0 p-0"
-            aria-label="Keluar"
-          >
-            <span className="w-12 h-12 short:w-9 short:h-9 rounded-xl short:rounded-lg bg-[#FFF6E5] border-[3px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_3px_0_#6E3B1B] flex items-center justify-center group-hover:scale-105 group-active:scale-95 transition-transform">
-              <PixelExitDoorIcon className="w-7 h-7 short:w-5 short:h-5" />
-            </span>
-            <span className="font-display font-black text-xs short:text-[10px] text-[#FFFDF7] menu-text-outline">
-              Keluar
-            </span>
-          </button>
+          {/* Bottom-Left Keluar & Bottom-Right Bahasa row on narrow portrait screens; pinned bottom-left & bottom-right on sm/short */}
+          <div className="flex items-center justify-between w-full sm:w-auto sm:contents short:contents">
+            {/* Bottom-Left Compact Keluar Button */}
+            <button
+              type="button"
+              data-ui-id="title-quit-btn"
+              data-ui-label={t.title.quit}
+              onClick={() => setQuitConfirmOpen(true)}
+              className="sm:absolute short:absolute sm:left-6 sm:bottom-6 short:left-3 short:bottom-2.5 flex flex-col items-center gap-1 short:gap-0.5 min-w-[44px] min-h-[44px] group cursor-pointer bg-transparent border-0 p-0"
+              aria-label={t.title.quit}
+            >
+              <span className="w-12 h-12 short:w-9 short:h-9 rounded-xl short:rounded-lg bg-[#FFF6E5] border-[3px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_3px_0_#6E3B1B] flex items-center justify-center group-hover:scale-105 group-active:scale-95 transition-transform">
+                <PixelExitDoorIcon className="w-7 h-7 short:w-5 short:h-5" />
+              </span>
+              <span className="font-display font-black text-xs short:text-[10px] text-[#FFFDF7] menu-text-outline">
+                {t.title.quit}
+              </span>
+            </button>
+
+            {/* Bottom-Right Bahasa Menu */}
+            <div className="sm:absolute short:absolute sm:right-6 sm:bottom-6 short:right-3 short:bottom-2.5 z-20">
+              <LanguageMenuButton
+                variant="title"
+                language={settings.language}
+                onSelectLanguage={(language) => onUpdateSettings({ language })}
+              />
+            </div>
+          </div>
 
           {/* Centered Horizontal Action Row: Mulai Baru | Lanjutkan | Pengaturan */}
           <div
@@ -636,13 +651,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <button
               type="button"
               data-ui-id="title-new-btn"
-              data-ui-label="Tombol Mulai Baru"
+              data-ui-label={t.title.newGame}
               onClick={() => setSubView('NEW_ADOPT')}
               className="px-5 py-2.5 short:px-3.5 short:py-1.5 min-h-[54px] short:min-h-[44px] rounded-2xl short:rounded-xl bg-gradient-to-b from-[#EE8B3B] to-[#D4671F] border-[3px] short:border-2 border-[#5E2F12] ring-2 ring-white/85 shadow-[inset_0_2px_0_#FBB876,0_4px_0_#5E2F12,0_8px_14px_rgba(35,18,6,0.28)] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2.5 short:gap-1.5 cursor-pointer whitespace-nowrap"
             >
               <PixelPawButtonIcon className="w-8 h-8 short:w-5 short:h-5 shrink-0" />
               <span className="font-display font-black text-lg sm:text-xl short:text-sm text-[#FFF8EB] menu-text-outline">
-                Mulai Baru
+                {t.title.newGame}
               </span>
             </button>
 
@@ -650,7 +665,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <button
               type="button"
               data-ui-id="title-continue-btn"
-              data-ui-label="Tombol Lanjutkan"
+              data-ui-label={t.title.continue}
               disabled={!existingSave}
               onClick={onContinueSave}
               className={`px-6 sm:px-7 py-2.5 short:px-4 short:py-1.5 min-h-[64px] short:min-h-[48px] rounded-2xl short:rounded-xl border-[3px] short:border-2 ring-2 ring-white/90 transition-all inline-flex items-center gap-3 short:gap-2 whitespace-nowrap ${
@@ -666,7 +681,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     existingSave ? 'text-[#FFFDF8] menu-text-outline' : 'text-[#6E5F4B]'
                   }`}
                 >
-                  Lanjutkan
+                  {t.title.continue}
                 </span>
                 <span
                   className={`text-xs short:text-[10px] font-bold tabular-nums truncate max-w-[170px] short:max-w-[130px] ${
@@ -674,10 +689,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                   }`}
                 >
                   {cloudSyncStatus === 'loading' && !existingSave
-                    ? 'Memuat dari Cloud...'
+                    ? t.title.loadingCloud
                     : existingSave
-                    ? `${existingSave.name} · ${LIFE_STAGES[existingSave.lifeStage ?? 'baby'].shortLabel} · Hari ${existingSave.day}`
-                    : 'Belum ada simpanan'}
+                    ? `${existingSave.name} · ${t.catalog.lifeStages[existingSave.lifeStage ?? 'baby'].shortLabel} · ${t.common.day} ${existingSave.day}`
+                    : t.title.noSaveYet}
                 </span>
               </span>
             </button>
@@ -686,13 +701,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <button
               type="button"
               data-ui-id="title-settings-btn"
-              data-ui-label="Tombol Pengaturan"
+              data-ui-label={t.title.settings}
               onClick={() => setSubView('SETTINGS')}
               className="px-5 py-2.5 short:px-3.5 short:py-1.5 min-h-[54px] short:min-h-[44px] rounded-2xl short:rounded-xl bg-gradient-to-b from-[#F5E4C8] to-[#DFC096] border-[3px] short:border-2 border-[#5E2F12] ring-2 ring-white/85 shadow-[0_4px_0_#5E2F12,0_8px_14px_rgba(35,18,6,0.28)] hover:brightness-105 active:translate-y-0.5 transition-all inline-flex items-center gap-2.5 short:gap-1.5 cursor-pointer whitespace-nowrap"
             >
               <PixelGearButtonIcon className="w-7 h-7 short:w-5 short:h-5 shrink-0" />
               <span className="font-display font-black text-lg sm:text-xl short:text-sm text-[#FFF8EB] menu-text-outline">
-                Pengaturan
+                {t.title.settings}
               </span>
             </button>
           </div>
@@ -716,10 +731,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 id="quit-confirm-title"
                 className="font-display text-xl font-extrabold text-[#5A2D12]"
               >
-                Apakah Anda yakin?
+                {t.title.quitConfirmTitle}
               </h2>
               <p className="text-sm font-medium text-[#7A4928] mt-1">
-                Apakah Anda yakin ingin keluar dari permainan?
+                {t.title.quitConfirmBody}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3 pt-1">
@@ -728,14 +743,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 onClick={onQuitApp}
                 className="px-4 py-2.5 min-h-[44px] rounded-xl bg-gradient-to-b from-[#F47B6A] to-[#D64B3B] border-[2.5px] border-[#6E241C] shadow-[inset_0_2px_0_#FCA5A5,0_3px_0_#6E241C] text-white font-display font-extrabold text-sm hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer menu-text-outline"
               >
-                Ya
+                {t.common.yes}
               </button>
               <button
                 type="button"
                 onClick={() => setQuitConfirmOpen(false)}
                 className="px-4 py-2.5 min-h-[44px] rounded-xl bg-gradient-to-b from-[#7BB453] to-[#4D8130] border-[2.5px] border-[#385926] shadow-[inset_0_2px_0_#B4E08E,0_3px_0_#385926] text-white font-display font-extrabold text-sm hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer menu-text-outline"
               >
-                Tidak
+                {t.common.no}
               </button>
             </div>
           </div>

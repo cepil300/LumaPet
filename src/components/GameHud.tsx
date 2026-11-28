@@ -1,7 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Gamepad2, Heart, Lock, Moon, Sparkles, Sun, X } from 'lucide-react';
+import { getTranslations } from '../i18n/translations';
 import {
   ACTION_DELTAS,
+  AppLanguage,
   BATH_ITEMS,
   BathItemId,
   CAT_TOYS,
@@ -9,7 +11,6 @@ import {
   ConsumableInventory,
   FOOD_ITEMS,
   FoodItemId,
-  LIFE_STAGES,
   ManualSleepMode,
   SLEEP_OPTIONS,
   ToolMode,
@@ -34,6 +35,7 @@ interface GameHudProps {
   hud: CatHudSnapshot;
   toolMode: ToolMode;
   shopOpen: boolean;
+  language?: AppLanguage;
   onSelectTool: (mode: ToolMode) => void;
   onFeedItem: (foodId: FoodItemId) => void;
   onUseBathItem: (bathId: BathItemId) => void;
@@ -149,13 +151,13 @@ const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
 
   return (
     <div
-      className={`flex items-center gap-2 mobile:gap-1 rounded-xl mobile:rounded-lg bg-[#F9EDD4]/85 border border-[#D4B483] px-2 py-1.5 mobile:px-1 mobile:py-0.5 shadow-[inset_0_1px_0_rgba(255,253,248,0.85)] shrink-0 ${
-        fullWidth ? 'w-full' : 'w-[154px] mobile:w-[98px]'
+      className={`flex items-center gap-1 mobile:gap-0.5 rounded-md mobile:rounded bg-[#F9EDD4]/85 border border-[#D4B483] px-1 py-0.5 mobile:px-0.5 mobile:py-[1px] shadow-[inset_0_1px_0_rgba(255,253,248,0.85)] shrink-0 ${
+        fullWidth ? 'w-full' : 'w-[78px] mobile:w-[50px]'
       }`}
     >
       {/* Wooden Square Icon Frame */}
-      <div className="w-8 h-8 mobile:w-5 mobile:h-5 rounded-lg mobile:rounded-md wood-modal-frame p-[2px] mobile:p-[1px] border-[2px] mobile:border border-[#5E2F12] shadow-[0_2px_0_rgba(94,47,18,0.28)] shrink-0">
-        <div className="w-full h-full rounded-[5px] mobile:rounded-[3px] bg-[#FFF8E6] border border-[#7A4928]/70 flex items-center justify-center p-0.5">
+      <div className="w-4 h-4 mobile:w-2.5 mobile:h-2.5 rounded mobile:rounded-[2px] wood-modal-frame p-[1px] mobile:p-[0.5px] border mobile:border-[0.5px] border-[#5E2F12] shadow-[0_1px_0_rgba(94,47,18,0.28)] shrink-0">
+        <div className="w-full h-full rounded-[2px] mobile:rounded-[1.5px] bg-[#FFF8E6] border border-[#7A4928]/70 flex items-center justify-center p-[1px]">
           {iconSrc ? (
             <img
               src={iconSrc}
@@ -170,15 +172,15 @@ const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline justify-between gap-1 leading-none mb-1 mobile:mb-0.5 min-w-0">
-          <span className="font-display font-extrabold text-[12.5px] mobile:text-[8.5px] tracking-tight text-[#5A2D12] whitespace-nowrap shrink-0">
+        <div className="flex items-baseline justify-between gap-0.5 leading-none mb-0.5 mobile:mb-[1px] min-w-0">
+          <span className="font-display font-extrabold text-[7px] mobile:text-[5px] tracking-tight text-[#5A2D12] whitespace-nowrap shrink-0">
             {label}
           </span>
           {statusTag && (
             <OverflowRunningText
               text={statusTag}
               align="right"
-              className={`text-[9px] mobile:text-[7px] font-extrabold uppercase tracking-wide flex-1 ${
+              className={`text-[5.5px] mobile:text-[4.5px] font-extrabold uppercase tracking-wide flex-1 ${
                 isLow ? 'text-[#B91C1C]' : 'text-[#B45309]'
               }`}
             />
@@ -186,7 +188,7 @@ const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
         </div>
 
         <div
-          className="relative w-full h-3 mobile:h-1.5 rounded-full bg-[#EFE0C1] border-[1.5px] mobile:border overflow-hidden shadow-inner"
+          className="relative w-full h-1.5 mobile:h-[3px] rounded-full bg-[#EFE0C1] border mobile:border-[0.5px] overflow-hidden shadow-inner"
           style={{ borderColor: isLow ? '#B91C1C' : borderColor }}
         >
           <div
@@ -200,11 +202,11 @@ const PixelVitalMeter: React.FC<PixelVitalMeterProps> = ({
                 : fillGradient,
             }}
           />
-          <div className="pointer-events-none absolute inset-y-0 left-[20%] w-[1.5px] bg-[#5A2D12]/30" />
-          <div className="pointer-events-none absolute inset-y-0 left-[40%] w-[1.5px] bg-[#5A2D12]/30" />
-          <div className="pointer-events-none absolute inset-y-0 left-[60%] w-[1.5px] bg-[#5A2D12]/30" />
-          <div className="pointer-events-none absolute inset-y-0 left-[80%] w-[1.5px] bg-[#5A2D12]/30" />
-          <div className="pointer-events-none absolute inset-x-1 top-[1px] h-[2px] mobile:h-[1px] rounded-full bg-white/45" />
+          <div className="pointer-events-none absolute inset-y-0 left-[20%] w-[1px] bg-[#5A2D12]/30" />
+          <div className="pointer-events-none absolute inset-y-0 left-[40%] w-[1px] bg-[#5A2D12]/30" />
+          <div className="pointer-events-none absolute inset-y-0 left-[60%] w-[1px] bg-[#5A2D12]/30" />
+          <div className="pointer-events-none absolute inset-y-0 left-[80%] w-[1px] bg-[#5A2D12]/30" />
+          <div className="pointer-events-none absolute inset-x-0.5 top-[0.5px] h-[1px] rounded-full bg-white/45" />
         </div>
       </div>
     </div>
@@ -222,6 +224,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   hud,
   toolMode,
   shopOpen,
+  language = 'id',
   onSelectTool,
   onFeedItem,
   onUseBathItem,
@@ -242,6 +245,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [selectedPlayId, setSelectedPlayId] = useState<PlayChoiceId>('interactive');
   const [selectedPetId, setSelectedPetId] = useState<PetChoiceId>('short');
   const [selectedSleepId, setSelectedSleepId] = useState<ManualSleepMode>('power_nap');
+  const t = getTranslations(language);
 
   useEffect(() => {
     if (shopOpen) {
@@ -255,16 +259,17 @@ export const GameHud: React.FC<GameHudProps> = ({
   const isPlayDisabled =
     isSleeping || hud.isBathing || hud.isSick || hud.energy < 20 || hud.hunger <= 2;
   const isMedicineDisabled = !hud.isSick || hud.isRecovering;
-  const activeToyMeta = CAT_TOYS.find((t) => t.id === hud.activeToy) ?? CAT_TOYS[0];
+  const activeToyMeta = CAT_TOYS.find((toy) => toy.id === hud.activeToy) ?? CAT_TOYS[0];
+  const activeToyLoc = t.catalog.toys[activeToyMeta.id];
   const showHealthBar = hud.isSick || hud.isRecovering || hud.health < 100;
   const dayPhaseLabel =
     hud.dayPhase === 'malam'
-      ? 'Malam'
+      ? t.hud.dayPhases.malam
       : hud.isDusk
-      ? 'Senja'
+      ? t.hud.dayPhases.senja
       : hud.dayPhase === 'siang'
-      ? 'Siang'
-      : 'Pagi';
+      ? t.hud.dayPhases.siang
+      : t.hud.dayPhases.pagi;
 
   const moodPillClass = hud.isSick
     ? 'bg-[#FEE2E2] text-[#991B1B]'
@@ -292,42 +297,60 @@ export const GameHud: React.FC<GameHudProps> = ({
         {/* Top-Left: Wooden Frame Status Panel (Image 2 style) */}
         <div
           data-ui-id="hud-status-panel"
-          data-ui-label="Panel Status"
-          className="pointer-events-auto wood-modal-frame rounded-xl mobile:rounded-lg p-1 mobile:p-0.5 border-[2.5px] mobile:border-[1.5px] border-[#5E2F12] shadow-[inset_0_1.5px_0_rgba(255,235,205,0.45),0_3px_0_rgba(58,28,10,0.4)]"
+          data-ui-label={t.hud.statusPanelLabel}
+          className="pointer-events-auto wood-modal-frame rounded-md mobile:rounded p-0.5 mobile:p-[1px] border-[1.5px] mobile:border border-[#5E2F12] shadow-[inset_0_1px_0_rgba(255,235,205,0.45),0_2px_0_rgba(58,28,10,0.4)]"
         >
-          <div className="relative rounded-lg mobile:rounded-md bg-[#FFF8E8] border-[1.5px] mobile:border border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFFFFF] px-2 py-1.5 mobile:px-1 mobile:py-0.5">
-            <PixelPawCluster className="w-6 h-3.5 absolute top-0.5 right-1 pointer-events-none opacity-65 mobile:hidden" />
+          <div className="relative rounded-[5px] mobile:rounded-[3px] bg-[#FFF8E8] border mobile:border-[0.5px] border-[#6E3B1B] shadow-[inset_0_1px_0_#FFFFFF] px-1 py-0.5 mobile:px-0.5 mobile:py-[1px]">
+            <PixelPawCluster className="w-3 h-2 absolute top-[1px] right-0.5 pointer-events-none opacity-65 mobile:hidden" />
 
-            <div className="grid grid-cols-2 gap-1.5 mobile:gap-0.5">
+            <div className="grid grid-cols-2 gap-[3px] mobile:gap-[1.5px]">
               <PixelVitalMeter
-                label="Kenyang"
+                label={t.hud.hunger}
                 value={hud.hunger}
                 iconSrc="/assets/ui/stat_hunger.png"
                 fillGradient="linear-gradient(180deg, #FFB53D 0%, #F97316 100%)"
                 borderColor="#7A4928"
-                statusTag={hud.hunger < 20 ? 'Kritis!' : hud.hunger < 40 ? 'Rewel!' : null}
+                statusTag={
+                  hud.hunger < 20
+                    ? t.hud.tags.critical
+                    : hud.hunger < 40
+                    ? t.hud.tags.cranky
+                    : null
+                }
                 critical={hud.hunger < 20}
               />
               <PixelVitalMeter
-                label="Bahagia"
+                label={t.hud.happiness}
                 value={hud.happiness}
                 iconSrc="/assets/ui/stat_happy.png"
                 fillGradient="linear-gradient(180deg, #FF93AD 0%, #F2587E 100%)"
                 borderColor="#9E3E5B"
-                statusTag={hud.happiness < 20 ? 'Stres!' : hud.happiness < 40 ? 'Ngambek' : null}
+                statusTag={
+                  hud.happiness < 20
+                    ? t.hud.tags.stressed
+                    : hud.happiness < 40
+                    ? t.hud.tags.sulking
+                    : null
+                }
                 critical={hud.happiness < 20}
               />
               <PixelVitalMeter
-                label="Bersih"
+                label={t.hud.cleanliness}
                 value={hud.cleanliness}
                 iconSrc="/assets/ui/stat_clean.png"
                 fillGradient="linear-gradient(180deg, #8EE2FF 0%, #38BDF8 100%)"
                 borderColor="#3D7F9E"
-                statusTag={hud.cleanliness < 15 ? 'Kritis!' : hud.cleanliness < 40 ? 'Kotor' : null}
+                statusTag={
+                  hud.cleanliness < 15
+                    ? t.hud.tags.critical
+                    : hud.cleanliness < 40
+                    ? t.hud.tags.dirty
+                    : null
+                }
                 critical={hud.cleanliness < 15}
               />
               <PixelVitalMeter
-                label="Energi"
+                label={t.hud.energy}
                 value={hud.energy}
                 iconSrc="/assets/ui/stat_energy.png"
                 fillGradient="linear-gradient(180deg, #FFE26A 0%, #F4B62A 100%)"
@@ -335,11 +358,11 @@ export const GameHud: React.FC<GameHudProps> = ({
                 innerRim
                 statusTag={
                   hud.drowsyStage === 'exhausted' || hud.energy <= 0
-                    ? 'Kelelahan!'
+                    ? t.hud.tags.exhausted
                     : hud.drowsyStage === 'drowsy_heavy'
-                    ? 'Ngantuk Berat'
+                    ? t.hud.tags.drowsyHeavy
                     : hud.drowsyStage === 'drowsy_light'
-                    ? 'Ngantuk'
+                    ? t.hud.tags.drowsyLight
                     : null
                 }
                 critical={hud.energy <= 20}
@@ -347,21 +370,21 @@ export const GameHud: React.FC<GameHudProps> = ({
             </div>
 
             {showHealthBar && (
-              <div className="mt-2 mobile:mt-1">
+              <div className="mt-1 mobile:mt-0.5">
                 <PixelVitalMeter
-                  label="Kesehatan"
+                  label={t.hud.health}
                   value={hud.health}
-                  iconNode={<CuteHealthStatIcon className="w-6 h-6 mobile:w-3.5 mobile:h-3.5" />}
+                  iconNode={<CuteHealthStatIcon className="w-3 h-3 mobile:w-2 mobile:h-2" />}
                   fillGradient="linear-gradient(180deg, #4ADE80 0%, #16A34A 100%)"
                   borderColor="#2D6A4F"
                   fullWidth
                   statusTag={
                     hud.isRecovering
                       ? hud.isSick
-                        ? `Pulih · Lemas (${hud.health}%)`
-                        : `Pulih (${hud.health}%)`
+                        ? t.hud.tags.recoveringLethargic(hud.health)
+                        : t.hud.tags.recovering(hud.health)
                       : hud.isSick
-                      ? `Sakit! (${hud.health}%)`
+                      ? t.hud.tags.sick(hud.health)
                       : `${hud.health}%`
                   }
                   critical={hud.isSick && !hud.isRecovering}
@@ -375,7 +398,7 @@ export const GameHud: React.FC<GameHudProps> = ({
         <div className="pointer-events-auto flex items-start gap-1.5 mobile:gap-1 shrink-0 ml-auto">
           <div
             data-ui-id="hud-profile-card"
-            data-ui-label="Profil Kucing"
+            data-ui-label={t.hud.profileCardLabel}
             className="wood-modal-frame rounded-xl mobile:rounded-lg p-1 mobile:p-0.5 border-[2.5px] mobile:border-[1.5px] border-[#5E2F12] shadow-[inset_0_1.5px_0_rgba(255,235,205,0.45),0_3px_0_rgba(58,28,10,0.4)]"
           >
             <div className="relative rounded-lg mobile:rounded-md bg-[#FFF8E8] border-[1.5px] mobile:border border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFFFFF] px-2 py-1.5 mobile:px-1 mobile:py-0.5 flex items-center gap-2 mobile:gap-1">
@@ -410,13 +433,11 @@ export const GameHud: React.FC<GameHudProps> = ({
                     className="inline-flex items-center gap-1 mobile:gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full bg-[#FFF7E2] border-[1.5px] mobile:border border-[#8C582E] text-[10px] mobile:text-[7.5px] font-extrabold text-[#4E270F] tabular-nums shadow-[inset_0_1px_0_#FFFFFF] shrink-0 max-w-[146px] mobile:max-w-[104px] min-w-0"
                     title={
                       (hud.dayPhase === 'pagi'
-                        ? 'Pagi (06:00–11:59) · Bonus tidur +10% Energi'
+                        ? t.hud.phaseTooltip.pagi
                         : hud.dayPhase === 'siang'
-                        ? `${hud.isDusk ? 'Senja' : 'Siang'} (12:00–17:59) · Main +10% Bahagia · Kenyang/Energi 1,1x`
-                        : 'Malam (18:00–05:59) · Tidur +20% Energi · Energi 1,25x') +
-                      (hud.weather === 'hujan'
-                        ? ' | Hujan: Energi 1,15x · Tidur +10% · Ngantuk ≤45 · Di rumah Bahagia 0,9x'
-                        : '')
+                        ? t.hud.phaseTooltip.siang(dayPhaseLabel)
+                        : t.hud.phaseTooltip.malam) +
+                      (hud.weather === 'hujan' ? t.hud.phaseTooltip.rainExtra : '')
                     }
                   >
                     {hud.dayPhase === 'malam' ? (
@@ -470,7 +491,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                       <svg
                         viewBox="0 0 24 24"
                         className="w-3 h-3 mobile:w-2 mobile:h-2 shrink-0"
-                        aria-label="Hujan"
+                        aria-label={t.hud.rain}
                       >
                         <path
                           d="M7 14h10a3.8 3.8 0 0 0 .6-7.55A4.8 4.8 0 0 0 8 6a3.8 3.8 0 0 0-1 8Z"
@@ -488,11 +509,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                       </svg>
                     )}
                     <OverflowRunningText
-                      text={`Hari ${hud.day}${
-                        hud.lifeStage === 'baby' ? ` (${Math.floor(hud.gameHours)}j)` : ''
-                      } · ${formatGameClock(hud.gameHour)} ${
-                        hud.weather === 'hujan' ? `Hujan ${dayPhaseLabel}` : dayPhaseLabel
-                      }`}
+                      text={t.hud.dayFormat(
+                        hud.day,
+                        hud.lifeStage === 'baby'
+                          ? ` (${Math.floor(hud.gameHours)}${t.common.hourShort})`
+                          : '',
+                        formatGameClock(hud.gameHour),
+                        hud.weather === 'hujan' ? `${t.hud.rain} ${dayPhaseLabel}` : dayPhaseLabel
+                      )}
                       className="flex-1 min-w-0"
                     />
                   </span>
@@ -504,16 +528,16 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <button
                       type="button"
                       onClick={onOpenLifeStage}
-                      title="Lihat Tahap Pertumbuhan & Evolusi"
+                      title={t.hud.viewLifeStageTooltip}
                       className="inline-flex items-center gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full bg-gradient-to-b from-[#FFE686] to-[#F2B538] border-[1.5px] mobile:border border-[#8C582E] shadow-[inset_0_1px_0_#FFF8D2] text-[10px] mobile:text-[7.5px] font-extrabold text-[#4E270F] hover:brightness-105 transition-all cursor-pointer shrink-0"
                     >
                       <Sparkles className="w-2.5 h-2.5 mobile:w-2 mobile:h-2 shrink-0" />
-                      <span>{LIFE_STAGES[hud.lifeStage].shortLabel}</span>
+                      <span>{t.catalog.lifeStages[hud.lifeStage].shortLabel}</span>
                     </button>
                   ) : (
                     <span className="inline-flex items-center gap-0.5 px-2 py-0.5 mobile:px-1 mobile:py-0 rounded-full bg-gradient-to-b from-[#FFE686] to-[#F2B538] border-[1.5px] mobile:border border-[#8C582E] shadow-[inset_0_1px_0_#FFF8D2] text-[10px] mobile:text-[7.5px] font-extrabold text-[#4E270F] shrink-0">
                       <Sparkles className="w-2.5 h-2.5 mobile:w-2 mobile:h-2 shrink-0" />
-                      <span>{LIFE_STAGES[hud.lifeStage].shortLabel}</span>
+                      <span>{t.catalog.lifeStages[hud.lifeStage].shortLabel}</span>
                     </span>
                   )}
 
@@ -537,7 +561,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     />
                     <span>
                       {hud.coins}
-                      <span className="mobile:hidden"> Koin</span>
+                      <span className="mobile:hidden"> {t.common.coins}</span>
                     </span>
                   </span>
                 </div>
@@ -547,19 +571,19 @@ export const GameHud: React.FC<GameHudProps> = ({
 
           <div
             data-ui-id="hud-pause-btn"
-            data-ui-label="Tombol Jeda"
+            data-ui-label={t.hud.pauseLabel}
             className="flex flex-col items-end gap-1.5 mobile:gap-1 shrink-0"
           >
             <button
               type="button"
               onClick={onPause}
               className="min-w-[40px] min-h-[40px] mobile:min-w-[28px] mobile:min-h-[28px] flex items-center justify-center bg-transparent border-0 p-0 hover:scale-105 active:scale-95 transition-transform shrink-0 cursor-pointer"
-              aria-label="Menu Jeda"
-              title="Menu Jeda (Esc)"
+              aria-label={t.hud.pauseLabel}
+              title={t.hud.pauseTooltip}
             >
               <img
                 src="/assets/ui/btn_pause.png"
-                alt="Jeda"
+                alt={t.hud.pauseLabel}
                 className="w-10 h-10 mobile:w-7 mobile:h-7 object-contain drop-shadow-[0_3px_0_rgba(90,45,18,0.28)]"
                 draggable={false}
               />
@@ -577,23 +601,23 @@ export const GameHud: React.FC<GameHudProps> = ({
               <span className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12]">
                 {activeMenu === 'food'
                   ? itemPickerOpen
-                    ? 'Pilih Makanan'
-                    : 'Makanan'
+                    ? t.hud.actionMenus.pickFood
+                    : t.hud.actionMenus.food
                   : activeMenu === 'bath'
                   ? itemPickerOpen
-                    ? 'Pilih Mandi'
-                    : 'Mandi'
+                    ? t.hud.actionMenus.pickBath
+                    : t.hud.actionMenus.bath
                   : activeMenu === 'play'
                   ? itemPickerOpen
-                    ? 'Pilih Bermain'
-                    : 'Bermain'
+                    ? t.hud.actionMenus.pickPlay
+                    : t.hud.actionMenus.play
                   : activeMenu === 'pet'
                   ? itemPickerOpen
-                    ? 'Pilih Elus'
-                    : 'Elus-elus'
+                    ? t.hud.actionMenus.pickPet
+                    : t.hud.actionMenus.pet
                   : itemPickerOpen
-                  ? 'Pilih Tidur'
-                  : 'Tidur'}
+                  ? t.hud.actionMenus.pickSleep
+                  : t.hud.actionMenus.sleep}
               </span>
               <button
                 type="button"
@@ -602,7 +626,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   setItemPickerOpen(false);
                 }}
                 className="w-7 h-7 rounded-full bg-[#EFE2C8] border border-[#7A4928]/50 text-[#5A2D12] flex items-center justify-center hover:bg-[#FCE8C3] cursor-pointer"
-                aria-label="Tutup menu aksi"
+                aria-label={t.hud.actionMenus.closeAria}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -613,6 +637,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 return (
                   <div className="space-y-1.5">
                     {FOOD_ITEMS.map((item) => {
+                      const foodLoc = t.catalog.foodItems[item.id];
                       const isSelected = selectedFoodId === item.id;
                       const stock = item.isFree
                         ? null
@@ -637,10 +662,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                             </div>
                             <div className="min-w-0">
                               <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                                {item.shortName}
+                                {foodLoc.shortName}
                               </p>
                               <p className="text-[11px] font-bold text-[#2D6A4F] truncate">
-                                {item.description}
+                                {foodLoc.description}
                               </p>
                             </div>
                           </div>
@@ -660,6 +685,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               }
 
               const item = FOOD_ITEMS.find((f) => f.id === selectedFoodId) ?? FOOD_ITEMS[0];
+              const foodLoc = t.catalog.foodItems[item.id];
               const stock = item.isFree
                 ? 0
                 : hud.inventory[item.id as keyof ConsumableInventory] ?? 0;
@@ -672,7 +698,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   <button
                     type="button"
                     onClick={() => setItemPickerOpen(true)}
-                    title="Klik untuk ganti pilihan makanan"
+                    title={t.hud.changeFoodTooltip}
                     className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                   >
                     <div className="w-10 h-10 rounded-lg bg-[#EFE4CE] border border-[#D8C29D] flex items-center justify-center shrink-0">
@@ -681,12 +707,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-1">
                         <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                          {item.shortName}
+                          {foodLoc.shortName}
                         </span>
                         <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                       </div>
                       <p className="text-[11px] font-bold text-[#2D6A4F] truncate">
-                        {item.description}
+                        {foodLoc.description}
                       </p>
                     </div>
                   </button>
@@ -707,7 +733,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                           : 'bg-gradient-to-b from-[#4B9B59] to-[#2E6F3E] border-[#1E4627] text-white cursor-pointer hover:brightness-105'
                       }`}
                     >
-                      {snackCd > 0 ? formatTimerMMSS(snackCd) : 'Beri Gratis'}
+                      {snackCd > 0 ? formatTimerMMSS(snackCd) : t.common.giveFree}
                     </button>
                   ) : stock > 0 ? (
                     <button
@@ -725,7 +751,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                           : 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722] cursor-pointer hover:bg-[#D4E6DA]'
                       }`}
                     >
-                      {isHungerFull ? `Kenyang 100 (${stock})` : `Pakai (${stock})`}
+                      {isHungerFull ? t.hud.hungerFull(stock) : t.hud.useWithStock(stock)}
                     </button>
                   ) : (
                     <button
@@ -737,7 +763,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                       }}
                       className="px-3 py-1.5 min-h-[38px] rounded-full border-2 font-display font-extrabold text-xs whitespace-nowrap shrink-0 bg-gradient-to-b from-[#FBBF49] to-[#E5861F] border-[#6E3B1B] text-[#5A2D12] cursor-pointer hover:brightness-105"
                     >
-                      Beli di Toko
+                      {t.common.buyInShop}
                     </button>
                   )}
                 </div>
@@ -749,6 +775,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 return (
                   <div className="space-y-1.5">
                     {BATH_ITEMS.map((item) => {
+                      const bathLoc = t.catalog.bathItems[item.id];
                       const isSelected = selectedBathId === item.id;
                       const stock = item.isFree
                         ? null
@@ -773,10 +800,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                             </div>
                             <div className="min-w-0">
                               <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                                {item.shortName}
+                                {bathLoc.shortName}
                               </p>
                               <p className="text-[11px] font-bold text-[#0369A1] truncate">
-                                {item.description}
+                                {bathLoc.description}
                               </p>
                             </div>
                           </div>
@@ -815,10 +842,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                         </div>
                         <div className="min-w-0">
                           <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Sikat Manual
+                            {t.hud.manualBrush}
                           </p>
                           <p className="text-[11px] font-bold text-[#0369A1] truncate">
-                            +10 Bersih per gosokan
+                            {t.hud.manualBrushDesc}
                           </p>
                         </div>
                       </div>
@@ -837,7 +864,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <button
                       type="button"
                       onClick={() => setItemPickerOpen(true)}
-                      title="Klik untuk ganti pilihan mandi"
+                      title={t.hud.changeBathTooltip}
                       className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                     >
                       <div className="w-10 h-10 rounded-lg bg-[#EFE4CE] border border-[#D8C29D] flex items-center justify-center shrink-0 p-1">
@@ -851,12 +878,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                       <div className="min-w-0">
                         <div className="flex items-center gap-1">
                           <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Sikat Manual
+                            {t.hud.manualBrush}
                           </span>
                           <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                         </div>
                         <p className="text-[11px] font-bold text-[#0369A1] truncate">
-                          +10 Bersih per gosokan
+                          {t.hud.manualBrushDesc}
                         </p>
                       </div>
                     </button>
@@ -875,20 +902,21 @@ export const GameHud: React.FC<GameHudProps> = ({
                       }`}
                     >
                       {hud.isBathing
-                        ? 'Mandi...'
+                        ? t.hud.bathingShort
                         : isSleeping
-                        ? 'Tidur'
+                        ? t.hud.sleepingShort
                         : hud.cleanliness >= 100
-                        ? 'Bersih 100'
+                        ? t.hud.cleanFull()
                         : toolMode === 'BRUSH'
-                        ? 'Matikan'
-                        : 'Pakai Sikat'}
+                        ? t.hud.brushDisable
+                        : t.hud.brushUse}
                     </button>
                   </div>
                 );
               }
 
               const item = BATH_ITEMS.find((b) => b.id === selectedBathId) ?? BATH_ITEMS[0];
+              const bathLoc = t.catalog.bathItems[item.id];
               const stock = item.isFree
                 ? 0
                 : hud.inventory[item.id as keyof ConsumableInventory] ?? 0;
@@ -902,7 +930,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   <button
                     type="button"
                     onClick={() => setItemPickerOpen(true)}
-                    title="Klik untuk ganti pilihan mandi"
+                    title={t.hud.changeBathTooltip}
                     className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                   >
                     <div className="w-10 h-10 rounded-lg bg-[#E6F4FE] border border-[#93C5FD] flex items-center justify-center shrink-0">
@@ -911,12 +939,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-1">
                         <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                          {item.shortName}
+                          {bathLoc.shortName}
                         </span>
                         <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                       </div>
                       <p className="text-[11px] font-bold text-[#0369A1] truncate">
-                        {item.description}
+                        {bathLoc.description}
                       </p>
                     </div>
                   </button>
@@ -938,14 +966,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                       }`}
                     >
                       {hud.isBathing
-                        ? 'Mandi...'
+                        ? t.hud.bathingShort
                         : isSleeping
-                        ? 'Tidur'
+                        ? t.hud.sleepingShort
                         : isCleanFull
-                        ? 'Bersih 100'
+                        ? t.hud.cleanFull()
                         : soapCd > 0
                         ? formatTimerMMSS(soapCd)
-                        : 'Pakai Gratis'}
+                        : t.common.useFree}
                     </button>
                   ) : stock > 0 ? (
                     <button
@@ -964,12 +992,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                       }`}
                     >
                       {hud.isBathing
-                        ? 'Mandi...'
+                        ? t.hud.bathingShort
                         : isSleeping
-                        ? 'Tidur'
+                        ? t.hud.sleepingShort
                         : isCleanFull
-                        ? `Bersih 100 (${stock})`
-                        : `Pakai (${stock})`}
+                        ? t.hud.cleanFull(stock)
+                        : t.hud.useWithStock(stock)}
                     </button>
                   ) : (
                     <button
@@ -981,7 +1009,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                       }}
                       className="px-3 py-1.5 min-h-[38px] rounded-full border-2 font-display font-extrabold text-xs whitespace-nowrap shrink-0 bg-gradient-to-b from-[#FBBF49] to-[#E5861F] border-[#6E3B1B] text-[#5A2D12] cursor-pointer hover:brightness-105"
                     >
-                      Beli di Toko
+                      {t.common.buyInShop}
                     </button>
                   )}
                 </div>
@@ -1007,30 +1035,30 @@ export const GameHud: React.FC<GameHudProps> = ({
                 miniCd > 0;
 
               const interactiveLabel = isSleeping
-                ? 'Tidur'
+                ? t.hud.sleepingShort
                 : hud.isSick
-                ? 'Sakit'
+                ? t.hud.sickShort
                 : hud.energy <= 20
-                ? 'Energi ≤ 20'
+                ? `${t.hud.energy} ≤ 20`
                 : hud.hunger <= 2
-                ? 'Lapar'
+                ? t.hud.hungryShort
                 : interactiveCd > 0
                 ? formatTimerMMSS(interactiveCd)
-                : 'Main';
+                : t.hud.playBtn;
 
               const miniLabel = !hud.miniGameUnlocked
-                ? 'Fase Anak+'
+                ? t.hud.miniGameLockedStage
                 : isSleeping
-                ? 'Tidur'
+                ? t.hud.sleepingShort
                 : hud.isSick
-                ? 'Sakit'
+                ? t.hud.sickShort
                 : hud.energy < 20
-                ? 'Energi < 20'
+                ? `${t.hud.energy} < 20`
                 : hud.hunger <= 2
-                ? 'Lapar'
+                ? t.hud.hungryShort
                 : miniCd > 0
                 ? formatTimerMMSS(miniCd)
-                : 'Mulai';
+                : t.hud.startBtn;
 
               if (itemPickerOpen) {
                 return (
@@ -1053,11 +1081,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                         </div>
                         <div className="min-w-0">
                           <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Mainan ({activeToyMeta.shortName})
+                            {t.hud.toyPlayItem(activeToyLoc.shortName)}
                           </p>
                           <p className="text-[11px] font-bold text-[#BE185D] truncate">
-                            +{isHappyFull ? 0 : ACTION_DELTAS.playInteractiveFull.happiness} Bahagia ·{' '}
-                            {ACTION_DELTAS.playInteractiveFull.energy} Energi
+                            {t.hud.playDeltaLine(
+                              isHappyFull ? 0 : ACTION_DELTAS.playInteractiveFull.happiness,
+                              ACTION_DELTAS.playInteractiveFull.energy
+                            )}
                           </p>
                         </div>
                       </div>
@@ -1084,11 +1114,16 @@ export const GameHud: React.FC<GameHudProps> = ({
                         </div>
                         <div className="min-w-0">
                           <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Mini Game Kolam
+                            {t.hud.miniGamePond}
                           </p>
                           <p className="text-[11px] font-bold text-[#0369A1] truncate">
-                            +{isHappyFull ? 0 : ACTION_DELTAS.playMiniGame.happiness + (hud.weather === 'hujan' ? 5 : 0)}{' '}
-                            Bahagia · {ACTION_DELTAS.playMiniGame.energy} Energi
+                            {t.hud.playDeltaLine(
+                              isHappyFull
+                                ? 0
+                                : ACTION_DELTAS.playMiniGame.happiness +
+                                    (hud.weather === 'hujan' ? 5 : 0),
+                              ACTION_DELTAS.playMiniGame.energy
+                            )}
                           </p>
                         </div>
                       </div>
@@ -1106,7 +1141,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <button
                       type="button"
                       onClick={() => setItemPickerOpen(true)}
-                      title="Klik untuk ganti aktivitas bermain"
+                      title={t.hud.changePlayTooltip}
                       className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                     >
                       <div className="w-10 h-10 rounded-lg bg-[#E0F2FE] border border-[#7DD3FC] flex items-center justify-center shrink-0">
@@ -1115,13 +1150,18 @@ export const GameHud: React.FC<GameHudProps> = ({
                       <div className="min-w-0">
                         <div className="flex items-center gap-1">
                           <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Mini Game Kolam
+                            {t.hud.miniGamePond}
                           </span>
                           <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                         </div>
                         <p className="text-[11px] font-bold text-[#0369A1] truncate">
-                          +{isHappyFull ? 0 : ACTION_DELTAS.playMiniGame.happiness + (hud.weather === 'hujan' ? 5 : 0)}{' '}
-                          Bahagia · {ACTION_DELTAS.playMiniGame.energy} Energi
+                          {t.hud.playDeltaLine(
+                            isHappyFull
+                              ? 0
+                              : ACTION_DELTAS.playMiniGame.happiness +
+                                  (hud.weather === 'hujan' ? 5 : 0),
+                            ACTION_DELTAS.playMiniGame.energy
+                          )}
                         </p>
                       </div>
                     </button>
@@ -1151,7 +1191,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   <button
                     type="button"
                     onClick={() => setItemPickerOpen(true)}
-                    title="Klik untuk ganti aktivitas bermain"
+                    title={t.hud.changePlayTooltip}
                     className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                   >
                     <div className="w-10 h-10 rounded-lg bg-[#FCE7F3] border border-[#F9A8D4] flex items-center justify-center shrink-0 p-1">
@@ -1160,13 +1200,15 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-1">
                         <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                          Mainan ({activeToyMeta.shortName})
+                          {t.hud.toyPlayItem(activeToyLoc.shortName)}
                         </span>
                         <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                       </div>
                       <p className="text-[11px] font-bold text-[#BE185D] truncate">
-                        +{isHappyFull ? 0 : ACTION_DELTAS.playInteractiveFull.happiness} Bahagia ·{' '}
-                        {ACTION_DELTAS.playInteractiveFull.energy} Energi
+                        {t.hud.playDeltaLine(
+                          isHappyFull ? 0 : ACTION_DELTAS.playInteractiveFull.happiness,
+                          ACTION_DELTAS.playInteractiveFull.energy
+                        )}
                       </p>
                     </div>
                   </button>
@@ -1218,10 +1260,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                         </div>
                         <div className="min-w-0">
                           <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Elus Singkat
+                            {t.hud.petShort}
                           </p>
                           <p className="text-[11px] font-bold text-[#BE185D] truncate">
-                            +{ACTION_DELTAS.petShort.happiness} Bahagia
+                            {t.hud.petShortDesc(ACTION_DELTAS.petShort.happiness)}
                           </p>
                         </div>
                       </div>
@@ -1248,10 +1290,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                         </div>
                         <div className="min-w-0">
                           <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Elus Penuh
+                            {t.hud.petFull}
                           </p>
                           <p className="text-[11px] font-bold text-[#BE185D] truncate">
-                            +{ACTION_DELTAS.petFull.happiness} Bahagia · {ACTION_DELTAS.petFull.hunger} Kenyang
+                            {t.hud.petFullDesc(
+                              ACTION_DELTAS.petFull.happiness,
+                              ACTION_DELTAS.petFull.hunger
+                            )}
                           </p>
                         </div>
                       </div>
@@ -1269,7 +1314,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <button
                       type="button"
                       onClick={() => setItemPickerOpen(true)}
-                      title="Klik untuk ganti jenis elus"
+                      title={t.hud.changePetTooltip}
                       className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                     >
                       <div className="w-10 h-10 rounded-lg bg-[#FCE7F3] border border-[#F9A8D4] flex items-center justify-center shrink-0">
@@ -1278,12 +1323,15 @@ export const GameHud: React.FC<GameHudProps> = ({
                       <div className="min-w-0">
                         <div className="flex items-center gap-1">
                           <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                            Elus Penuh
+                            {t.hud.petFull}
                           </span>
                           <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                         </div>
                         <p className="text-[11px] font-bold text-[#BE185D] truncate">
-                          +{ACTION_DELTAS.petFull.happiness} Bahagia · {ACTION_DELTAS.petFull.hunger} Kenyang
+                          {t.hud.petFullDesc(
+                            ACTION_DELTAS.petFull.happiness,
+                            ACTION_DELTAS.petFull.hunger
+                          )}
                         </p>
                       </div>
                     </button>
@@ -1303,10 +1351,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                       }`}
                     >
                       {isSleeping
-                        ? 'Tidur'
+                        ? t.hud.sleepingShort
                         : petFullCd > 0
                         ? formatTimerMMSS(petFullCd)
-                        : 'Kasih Sayang'}
+                        : t.hud.petFullBtn}
                     </button>
                   </div>
                 );
@@ -1317,7 +1365,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   <button
                     type="button"
                     onClick={() => setItemPickerOpen(true)}
-                    title="Klik untuk ganti jenis elus"
+                    title={t.hud.changePetTooltip}
                     className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                   >
                     <div className="w-10 h-10 rounded-lg bg-[#FFE4E6] border border-[#FDA4AF] flex items-center justify-center shrink-0 p-1">
@@ -1326,12 +1374,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-1">
                         <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                          Elus Singkat
+                          {t.hud.petShort}
                         </span>
                         <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                       </div>
                       <p className="text-[11px] font-bold text-[#BE185D] truncate">
-                        +{ACTION_DELTAS.petShort.happiness} Bahagia
+                        {t.hud.petShortDesc(ACTION_DELTAS.petShort.happiness)}
                       </p>
                     </div>
                   </button>
@@ -1351,10 +1399,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                     }`}
                   >
                     {isSleeping
-                      ? 'Tidur'
+                      ? t.hud.sleepingShort
                       : petShortCd > 0
                       ? formatTimerMMSS(petShortCd)
-                      : 'Elus'}
+                      : t.hud.petShortBtn}
                   </button>
                 </div>
               );
@@ -1366,10 +1414,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                   <div className="p-2.5 rounded-xl bg-[#EFF6FF] border-2 border-[#60A5FA] flex items-center justify-between gap-2">
                     <div className="text-xs font-extrabold text-[#1E3A8A] tabular-nums">
                       {hud.sleepMode === 'auto_sleep'
-                        ? 'Auto-Sleep'
+                        ? t.hud.autoSleep
                         : hud.sleepMode === 'power_nap'
-                        ? 'Power Nap'
-                        : 'Tidur Penuh'}
+                        ? t.hud.powerNap
+                        : t.hud.fullRest}
                       {' · '}
                       {formatTimerMMSS(hud.sleepRemainingSec)}
                     </div>
@@ -1382,7 +1430,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                       className="px-3 py-1.5 min-h-[36px] rounded-full bg-gradient-to-b from-[#FBBF49] to-[#E5861F] border-2 border-[#6E3B1B] text-[#5A2D12] font-display font-extrabold text-xs whitespace-nowrap cursor-pointer"
                     >
                       <Sun className="w-3.5 h-3.5 inline mr-1" />
-                      Bangunkan (-10 Bahagia)
+                      {t.hud.wakeUpPenalty}
                     </button>
                   </div>
                 );
@@ -1397,6 +1445,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 return (
                   <div className="space-y-1.5">
                     {SLEEP_OPTIONS.map((opt) => {
+                      const optLoc = t.catalog.sleepOptions[opt.id];
                       const isSelected = selectedSleepId === opt.id;
                       const briefMode = isDaytimeBriefOnly && opt.id === 'power_nap';
                       return (
@@ -1419,10 +1468,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                             </div>
                             <div className="min-w-0">
                               <p className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                                {briefMode ? 'Tidur Sebentar' : opt.shortName}
+                                {briefMode ? t.hud.briefNap : optLoc.shortName}
                               </p>
                               <p className="text-[11px] font-bold text-[#1D4ED8] truncate">
-                                {briefMode ? '+20 Energi · 1,5 mnt' : opt.description}
+                                {briefMode ? t.hud.briefNapDesc : optLoc.description}
                               </p>
                             </div>
                           </div>
@@ -1435,6 +1484,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               }
 
               const opt = SLEEP_OPTIONS.find((s) => s.id === selectedSleepId) ?? SLEEP_OPTIONS[0];
+              const optLoc = t.catalog.sleepOptions[opt.id];
               const briefMode = isDaytimeBriefOnly && opt.id === 'power_nap';
               const optBlocked =
                 isSleeping ||
@@ -1443,23 +1493,23 @@ export const GameHud: React.FC<GameHudProps> = ({
                 (isDaytimeBriefOnly && opt.id === 'full_rest');
 
               const btnLabel = isSleeping
-                ? 'Tidur'
+                ? t.hud.sleepingShort
                 : isEnergyFull
-                ? 'Energi 100'
+                ? t.hud.energy100
                 : isDaytimeTooFresh
-                ? 'Segar (>85)'
+                ? t.hud.freshGuard
                 : isDaytimeBriefOnly && opt.id === 'full_rest'
-                ? 'Energi >70'
+                ? t.hud.energyAbove70
                 : briefMode
-                ? 'Tidur Sebentar'
-                : opt.shortName;
+                ? t.hud.briefNap
+                : optLoc.shortName;
 
               return (
                 <div className="flex items-center justify-between gap-2.5 p-2 rounded-xl bg-[#FFFDF8] border-2 border-[#C79C69]">
                   <button
                     type="button"
                     onClick={() => setItemPickerOpen(true)}
-                    title="Klik untuk ganti pilihan tidur"
+                    title={t.hud.changeSleepTooltip}
                     className="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-lg hover:bg-[#FFF5DF] p-1 -m-1 transition-colors cursor-pointer"
                   >
                     <div className="w-10 h-10 rounded-lg bg-[#EFF6FF] border border-[#93C5FD] flex items-center justify-center shrink-0">
@@ -1468,12 +1518,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-1">
                         <span className="font-display font-extrabold text-xs sm:text-sm text-[#5A2D12] truncate">
-                          {briefMode ? 'Tidur Sebentar' : opt.shortName}
+                          {briefMode ? t.hud.briefNap : optLoc.shortName}
                         </span>
                         <ChevronDown className="w-4 h-4 text-[#7A4928] shrink-0" />
                       </div>
                       <p className="text-[11px] font-bold text-[#1D4ED8] truncate">
-                        {briefMode ? '+20 Energi · 1,5 mnt' : opt.description}
+                        {briefMode ? t.hud.briefNapDesc : optLoc.description}
                       </p>
                     </div>
                   </button>
@@ -1509,15 +1559,15 @@ export const GameHud: React.FC<GameHudProps> = ({
           <button
             type="button"
             onClick={() => toggleMenu('food')}
-            aria-label="Menu Makanan"
-            title="Makan (Camilan Gratis / Makanan Shop)"
+            aria-label={t.hud.dock.foodAria}
+            title={t.hud.dock.foodTitle}
             className={`relative w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center hover:-translate-y-1.5 hover:scale-105 active:translate-y-0 transition-transform cursor-pointer ${
               activeMenu === 'food' ? '-translate-y-2 short:-translate-y-1 scale-110' : ''
             }`}
           >
             <img
               src="/assets/ui/icon_feed.png"
-              alt="Makan"
+              alt={t.hud.actionMenus.food}
               className="w-full h-full object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.28)]"
               draggable={false}
             />
@@ -1532,17 +1582,17 @@ export const GameHud: React.FC<GameHudProps> = ({
             }}
             aria-label={
               hud.isBathing
-                ? 'Kucing sedang mandi di bak'
+                ? t.hud.dock.bathBathing
                 : isSleeping
-                ? 'Mandi dikunci saat kucing sedang tidur'
-                : 'Menu Mandi & Kebersihan'
+                ? t.hud.dock.bathLockedSleep
+                : t.hud.dock.bathAria
             }
             title={
               hud.isBathing
-                ? 'Kucing sedang mandi di bak!'
+                ? t.hud.dock.bathBathing
                 : isSleeping
-                ? 'Mandi dikunci saat kucing sedang tidur'
-                : 'Mandi (Sabun Gratis / Shampo / Spa)'
+                ? t.hud.dock.bathLockedSleep
+                : t.hud.dock.bathTitle
             }
             className={`w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center transition-transform ${
               isBathLocked
@@ -1556,7 +1606,7 @@ export const GameHud: React.FC<GameHudProps> = ({
           >
             <img
               src="/assets/ui/icon_brush.png"
-              alt="Mandi"
+              alt={t.hud.actionMenus.bath}
               className={`w-full h-full object-contain ${
                 !isBathLocked && (toolMode === 'BRUSH' || activeMenu === 'bath')
                   ? 'drop-shadow-[0_0_10px_rgba(125,211,252,0.95)]'
@@ -1575,17 +1625,17 @@ export const GameHud: React.FC<GameHudProps> = ({
             }}
             aria-label={
               isSleeping
-                ? 'Bermain dikunci saat kucing sedang tidur'
+                ? t.hud.dock.playLockedSleep
                 : isPlayDisabled
-                ? 'Tidak bisa bermain saat sakit atau Energi < 20'
-                : `Menu Bermain (${activeToyMeta.name})`
+                ? t.hud.dock.playDisabledAria
+                : t.hud.dock.playAria(activeToyLoc.name)
             }
             title={
               isSleeping
-                ? 'Bermain dikunci saat kucing sedang tidur'
+                ? t.hud.dock.playLockedSleep
                 : isPlayDisabled
-                ? 'Tidak bisa bermain (Sakit atau Energi < 20)'
-                : 'Bermain (Mainan Interaktif / Mini Game)'
+                ? t.hud.dock.playDisabledTitle
+                : t.hud.dock.playTitle
             }
             className={`w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center transition-transform ${
               isPlayDisabled
@@ -1600,7 +1650,7 @@ export const GameHud: React.FC<GameHudProps> = ({
             {hud.activeToy === 'yarn_ball' ? (
               <img
                 src="/assets/ui/icon_ball.png"
-                alt={activeToyMeta.name}
+                alt={activeToyLoc.name}
                 className={`w-full h-full object-contain ${
                   !isPlayDisabled && (toolMode === 'TOY' || activeMenu === 'play')
                     ? 'drop-shadow-[0_0_10px_rgba(244,114,182,0.95)]'
@@ -1623,8 +1673,8 @@ export const GameHud: React.FC<GameHudProps> = ({
           <button
             type="button"
             onClick={() => toggleMenu('pet')}
-            aria-label="Menu Elus-elus"
-            title="Elus-elus (+15 / +25 Bahagia · +0 Energi)"
+            aria-label={t.hud.dock.petAria}
+            title={t.hud.dock.petTitle}
             className={`w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center hover:-translate-y-1.5 hover:scale-105 active:translate-y-0 transition-transform cursor-pointer ${
               activeMenu === 'pet' ? '-translate-y-2 short:-translate-y-1 scale-110' : ''
             }`}
@@ -1641,15 +1691,15 @@ export const GameHud: React.FC<GameHudProps> = ({
           <button
             type="button"
             onClick={() => toggleMenu('sleep')}
-            aria-label="Menu Tidur & Istirahat"
-            title="Tidur & Istirahat (Power Nap / Tidur Penuh)"
+            aria-label={t.hud.dock.sleepAria}
+            title={t.hud.dock.sleepTitle}
             className={`w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center hover:-translate-y-1.5 hover:scale-105 active:translate-y-0 transition-transform cursor-pointer ${
               isSleeping || activeMenu === 'sleep' ? '-translate-y-2 short:-translate-y-1 scale-110' : ''
             }`}
           >
             <img
               src="/assets/ui/icon_sleep.png"
-              alt="Tidur"
+              alt={t.hud.actionMenus.sleep}
               className={`w-full h-full object-contain ${
                 isSleeping || activeMenu === 'sleep'
                   ? 'drop-shadow-[0_0_10px_rgba(250,204,21,0.95)]'
@@ -1669,19 +1719,19 @@ export const GameHud: React.FC<GameHudProps> = ({
             }}
             aria-label={
               hud.isRecovering
-                ? 'Kucing sedang pulih dari obat'
+                ? t.hud.dock.medRecoveringAria
                 : !hud.isSick
-                ? 'Obat hanya bisa diberikan saat kucing sakit'
-                : 'Beri Obat'
+                ? t.hud.dock.medHealthyAria
+                : t.hud.dock.medAria
             }
             title={
               hud.isRecovering
                 ? hud.isSick
-                  ? 'Kucing sedang pemulihan (efek sakit hilang di 90%)'
-                  : 'Kucing sedang pemulihan menuju 100%'
+                  ? t.hud.dock.medRecoveringSickTitle
+                  : t.hud.dock.medRecoveringTitle
                 : !hud.isSick
-                ? 'Obat hanya bisa diberikan saat kucing sakit'
-                : 'Beri Obat (Kucing sedang sakit!)'
+                ? t.hud.dock.medHealthyTitle
+                : t.hud.dock.medSickTitle
             }
             className={`w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center transition-transform ${
               isMedicineDisabled
@@ -1691,7 +1741,7 @@ export const GameHud: React.FC<GameHudProps> = ({
           >
             <img
               src="/assets/ui/icon_medicine.png"
-              alt="Beri Obat"
+              alt={t.hud.dock.medAria}
               className={`w-full h-full object-contain ${
                 !isMedicineDisabled
                   ? 'drop-shadow-[0_0_12px_rgba(52,211,153,1)]'
@@ -1703,31 +1753,33 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
 
         {/* Bottom-Right: Shop Button */}
-        <button
-          type="button"
-          data-ui-id="hud-shop-btn"
-          data-ui-label="Tombol Toko"
-          onClick={() => {
-            setActiveMenu(null);
-            onToggleShop();
-          }}
-          aria-label="Toko"
-          title="Toko"
-          className={`pointer-events-auto absolute right-0 bottom-0 w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center hover:-translate-y-1.5 hover:scale-105 active:translate-y-0 transition-transform cursor-pointer ${
-            shopOpen ? '-translate-y-2 short:-translate-y-1 scale-110' : ''
-          }`}
-        >
-          <img
-            src="/assets/ui/icon_shop.png"
-            alt="Toko"
-            className={`w-full h-full object-contain ${
-              shopOpen
-                ? 'drop-shadow-[0_0_10px_rgba(251,191,36,0.95)]'
-                : 'drop-shadow-[0_4px_4px_rgba(0,0,0,0.28)]'
+        <div className="pointer-events-auto absolute right-0 bottom-0 flex items-end z-20">
+          <button
+            type="button"
+            data-ui-id="hud-shop-btn"
+            data-ui-label={t.hud.dock.shopLabel}
+            onClick={() => {
+              setActiveMenu(null);
+              onToggleShop();
+            }}
+            aria-label={t.hud.dock.shopLabel}
+            title={t.hud.dock.shopLabel}
+            className={`w-13 h-13 sm:w-15 sm:h-15 short:w-11 short:h-11 bg-transparent border-0 p-0 flex items-center justify-center hover:-translate-y-1.5 hover:scale-105 active:translate-y-0 transition-transform cursor-pointer ${
+              shopOpen ? '-translate-y-2 short:-translate-y-1 scale-110' : ''
             }`}
-            draggable={false}
-          />
-        </button>
+          >
+            <img
+              src="/assets/ui/icon_shop.png"
+              alt={t.hud.dock.shopLabel}
+              className={`w-full h-full object-contain ${
+                shopOpen
+                  ? 'drop-shadow-[0_0_10px_rgba(251,191,36,0.95)]'
+                  : 'drop-shadow-[0_4px_4px_rgba(0,0,0,0.28)]'
+              }`}
+              draggable={false}
+            />
+          </button>
+        </div>
       </div>
     </div>
   );

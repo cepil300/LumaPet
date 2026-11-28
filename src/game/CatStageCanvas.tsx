@@ -5,9 +5,11 @@ import React, {
   useRef,
 } from 'react';
 import { soundEngine } from '../audio/soundEngine';
+import { getTranslations } from '../i18n/translations';
 import {
   ACTION_DELTAS,
   AdultEvolutionBranch,
+  AppLanguage,
   AUTO_SLEEP_CONFIG,
   BATH_ITEMS,
   BathItemId,
@@ -104,6 +106,7 @@ import {
   computeScreenRoomBounds,
   constrainItemPlacement,
   FloorObstacle,
+  getWallFloorY,
   ItemFootprint,
   TUB_FOOTPRINT,
 } from './roomPlacement';
@@ -148,6 +151,7 @@ interface CatStageCanvasProps {
   toolMode: ToolMode;
   previewBreed: CatBreed;
   hungerSpeed: HungerSpeed;
+  language?: AppLanguage;
   devTimeScale?: DevTimeScale;
   onHudUpdate: (snapshot: CatHudSnapshot) => void;
   onGameOver: (finalSnapshot: CatHudSnapshot) => void;
@@ -264,8 +268,8 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 function getCatDragCursorGapPx(viewH: number, isTouch: boolean): number {
-  const base = clamp(viewH * 0.16, 78, 102);
-  return isTouch ? clamp(Math.max(base + 12, 92), 92, 118) : base;
+  const base = clamp(viewH * 0.08, 39, 51);
+  return isTouch ? clamp(Math.max(base + 6, 46), 46, 59) : base;
 }
 
 function formatCooldownMMSS(sec: number): string {
@@ -282,6 +286,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       toolMode,
       previewBreed,
       hungerSpeed,
+      language = 'id',
       devTimeScale = 1,
       onHudUpdate,
       onGameOver,
@@ -304,7 +309,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     const toolModeRef = useRef<ToolMode>(toolMode);
     const previewBreedRef = useRef<CatBreed>(previewBreed);
     const hungerSpeedRef = useRef<HungerSpeed>(hungerSpeed);
+    const languageRef = useRef<AppLanguage>(language);
     const devTimeScaleRef = useRef<DevTimeScale>(devTimeScale);
+    const onHudUpdateRef = useRef(onHudUpdate);
     const onToySessionEndRef = useRef(onToySessionEnd);
     const onBatheCompleteRef = useRef(onBatheComplete);
     const onAutoSaveNeededRef = useRef(onAutoSaveNeeded);
@@ -313,7 +320,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     toolModeRef.current = toolMode;
     previewBreedRef.current = previewBreed;
     hungerSpeedRef.current = hungerSpeed;
+    languageRef.current = language;
     devTimeScaleRef.current = devTimeScale;
+    onHudUpdateRef.current = onHudUpdate;
     onToySessionEndRef.current = onToySessionEnd;
     onBatheCompleteRef.current = onBatheComplete;
     onAutoSaveNeededRef.current = onAutoSaveNeeded;
@@ -479,8 +488,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       catDragTime: 0,
       catSwingAngle: 0,
       catSwingVel: 0,
-      catDragPrevPtrNx: 0,
-      catDragSmoothVx: 0,
+      catRopeAngle: 0,
+      catRopeVel: 0,
+      catDragPrevAnchorX: 0,
+      catDragSmoothAnchorVx: 0,
       catDropTargetNx: 0.52,
       catDropTargetNy: 0.78,
 
@@ -594,9 +605,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.level += 1;
         s.coins += 15;
         soundEngine.playChime();
+        const t = getTranslations(languageRef.current);
         const pos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
         spawnParticle('text', pos.x, pos.y - 45, {
-          label: `Ikatan Lv. ${s.level}! +15 Koin`,
+          label: t.stage.toasts.bondLevelUp(s.level),
           color: '#FDE68A',
           size: 16,
           vy: -36,
@@ -612,8 +624,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           });
         }
       } else if (totalCoinGain > 0 && popupX !== undefined && popupY !== undefined) {
+        const t = getTranslations(languageRef.current);
         spawnParticle('text', popupX, popupY - 26, {
-          label: `+${totalCoinGain} Koin`,
+          label: t.stage.toasts.coinGain(totalCoinGain),
           color: '#FDE68A',
           size: 14,
           vy: -38,
@@ -624,14 +637,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
     const celebrateStageEvolution = (nextStage: LifeStage, extraNote?: string) => {
       const s = simRef.current;
-      const meta = LIFE_STAGES[nextStage];
+      const t = getTranslations(languageRef.current);
+      const stageLabel = t.catalog.lifeStages[nextStage].label;
       soundEngine.playChime();
       soundEngine.playMeow(nextStage === 'child' ? 1.18 : nextStage === 'senior' ? 0.88 : 1.02);
       const pos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
       spawnParticle('text', pos.x, pos.y - 48, {
         label: extraNote
-          ? `Evolusi: ${meta.label} (${extraNote})!`
-          : `Evolusi: Fase ${meta.label}!`,
+          ? t.stage.toasts.evolutionExtra(stageLabel, extraNote)
+          : t.stage.toasts.evolution(stageLabel),
         color: '#FDE68A',
         size: 15,
         vy: -30,
@@ -706,88 +720,83 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         sleepManual: 0,
       };
 
-      let moodLabel = 'Tenang & Nyaman';
-      if (isRecovering && s.isSick && s.behavior === 'SLEEPING') moodLabel = 'Pemulihan 2x di Kasur';
-      else if (isRecovering && s.isSick) moodLabel = 'Pemulihan (Masih Sakit)';
-      else if (isRecovering) moodLabel = 'Hampir Pulih Total';
-      else if (s.isSick) moodLabel = 'Sedang Sakit';
-      else if (s.isDraggingCat) moodLabel = 'Sedang Digendong';
-      else if (s.isBathing || s.walkingToBath) moodLabel = 'Sedang Mandi';
+      const t = getTranslations(languageRef.current);
+      const toyLoc = t.catalog.toys[getToyOption(s.activeToy).id];
+
+      let moodLabel = t.stage.moods.calm;
+      if (isRecovering && s.isSick && s.behavior === 'SLEEPING') moodLabel = t.stage.moods.recoverBed;
+      else if (isRecovering && s.isSick) moodLabel = t.stage.moods.recoverSick;
+      else if (isRecovering) moodLabel = t.stage.moods.almostRecovered;
+      else if (s.isSick) moodLabel = t.stage.moods.sick;
+      else if (s.isDraggingCat) moodLabel = t.stage.moods.held;
+      else if (s.isBathing || s.walkingToBath) moodLabel = t.stage.moods.bathing;
       else if (s.behavior === 'SLEEPING') {
         moodLabel =
           s.sleepMode === 'auto_sleep'
-            ? 'Tidur Otomatis'
+            ? t.stage.moods.autoSleep
             : s.sleepMode === 'power_nap'
-            ? 'Power Nap'
-            : 'Tidur Nyenyak';
-      } else if (s.behavior === 'DOZING') moodLabel = 'Santai di Lantai';
-      else if (s.behavior === 'EATING') moodLabel = 'Lahap Makan';
+            ? t.stage.moods.powerNap
+            : t.stage.moods.deepSleep;
+      } else if (s.behavior === 'DOZING') moodLabel = t.stage.moods.dozing;
+      else if (s.behavior === 'EATING') moodLabel = t.stage.moods.eating;
       else if (s.behavior === 'PLAYING' && s.toy.active) {
-        moodLabel = `Main ${getToyOption(s.activeToy).name}`;
-      } else if (s.behavior === 'ROLLING') moodLabel = 'Berguling Lucu';
-      else if (s.behavior === 'PURRING') moodLabel = 'Sangat Manja';
-      else if (s.behavior === 'STRETCHING') moodLabel = 'Meregangkan Badan';
-      else if (s.hunger <= 0) moodLabel = 'Kelaparan!';
-      else if (isHungry) moodLabel = 'Rewel Minta Makan';
-      else if (s.happiness < 40) moodLabel = 'Sedang Ngambek';
-      else if (s.cleanliness < 40) moodLabel = 'Perlu Dibersihkan';
+        moodLabel = t.stage.moods.playingToy(toyLoc.name);
+      } else if (s.behavior === 'ROLLING') moodLabel = t.stage.moods.rolling;
+      else if (s.behavior === 'PURRING') moodLabel = t.stage.moods.purring;
+      else if (s.behavior === 'STRETCHING') moodLabel = t.stage.moods.stretching;
+      else if (s.hunger <= 0) moodLabel = t.stage.moods.starving;
+      else if (isHungry) moodLabel = t.stage.moods.hungryCranky;
+      else if (s.happiness < 40) moodLabel = t.stage.moods.sulking;
+      else if (s.cleanliness < 40) moodLabel = t.stage.moods.needsCleaning;
       else if (drowsyStage === 'drowsy_heavy' || drowsyStage === 'exhausted') {
-        moodLabel = 'Sangat Ngantuk';
+        moodLabel = t.stage.moods.veryDrowsy;
       } else if (drowsyStage === 'drowsy_light') {
-        moodLabel = 'Mulai Ngantuk';
-      } else if (s.happiness > 82) moodLabel = 'Sangat Ceria';
+        moodLabel = t.stage.moods.gettingDrowsy;
+      } else if (s.happiness > 82) moodLabel = t.stage.moods.veryHappy;
 
       let warningText: string | null = null;
       if (s.isSick && isRecovering) {
-        warningText = `${s.name} sedang masa pemulihan (${Math.round(
-          s.health
-        )}%) — efek sakit masih terasa hingga kesehatan mencapai 90%${
-          s.behavior === 'SLEEPING' ? ' · Pemulihan 2x lebih cepat di kasur!' : '.'
-        }`;
+        warningText = t.stage.warnings.recovering(
+          s.name,
+          Math.round(s.health),
+          s.behavior === 'SLEEPING'
+        );
       } else if (s.isSick && !isRecovering) {
         if (s.sickReason === 'overwork') {
-          warningText = `Kelelahan / Overwork! ${s.name} jatuh sakit karena Energi 0 terlalu lama—segera beri obat sebelum kesehatan habis.`;
+          warningText = t.stage.warnings.sickOverwork(s.name);
         } else if (s.sickReason === 'dirty_zero') {
-          warningText = `Kebersihan 0%! ${s.name} jatuh sakit—mandikan dan beri obat sebelum kesehatan habis.`;
+          warningText = t.stage.warnings.sickDirtyZero(s.name);
         } else if (s.sickReason === 'chronic_dirty') {
-          warningText = `${s.name} jatuh sakit karena terlalu sering kotor! Segera beri obat sebelum kesehatan habis.`;
+          warningText = t.stage.warnings.sickChronicDirty(s.name);
         } else {
-          warningText = `${s.name} sedang sakit (${Math.round(
-            s.health
-          )}% Kesehatan)! Segera beri obat sebelum mencapai 0%.`;
+          warningText = t.stage.warnings.sickGeneric(s.name, Math.round(s.health));
         }
       } else if (s.behavior === 'SLEEPING' && s.sleepMode === 'auto_sleep') {
-        warningText = `Kelelahan total! ${s.name} masuk [AUTO-SLEEP] (${formatCooldownMMSS(
-          s.sleepRemainingSec
-        )}) · Bermain & Mandi dikunci.`;
+        warningText = t.stage.warnings.autoSleep(s.name, formatCooldownMMSS(s.sleepRemainingSec));
       } else if (s.hunger <= 0 && s.bowlAmount <= 0.02) {
-        warningText = `${s.name} kelaparan (0%)! Kondisi memburuk—segera beri makan.`;
+        warningText = t.stage.warnings.starving(s.name);
       } else if (s.hunger < 20 && s.bowlAmount <= 0.02) {
-        warningText = `${s.name} sangat lapar (<20%)! Kesehatannya mulai menurun—segera beri makan.`;
+        warningText = t.stage.warnings.veryHungry(s.name);
       } else if (s.energy <= 20 && s.behavior !== 'SLEEPING') {
-        warningText = `${s.name} sangat ngantuk (${Math.round(
-          s.energy
-        )}% Energi)! Mainan Interaktif ditolak—segera tidurkan.`;
+        warningText = t.stage.warnings.veryDrowsy(s.name, Math.round(s.energy));
       } else if (isLateNight && s.behavior !== 'SLEEPING') {
-        warningText = `${s.name} mengantuk berat (01:00–06:00)! Menolak berlari & aktivitas menguras 5x energi. Tidurkan untuk pulih 3x lebih cepat.`;
+        warningText = t.stage.warnings.lateNightDrowsy(s.name);
       } else if (s.hunger < 40 && s.bowlAmount <= 0.02) {
-        warningText = `${s.name} mulai rewel minta makan (<40%)! Waktunya beri makan.`;
+        warningText = t.stage.warnings.hungryCranky(s.name);
       } else if (s.cleanliness < 15) {
-        warningText = `${s.name} sangat kotor (<15%)! Kesehatannya menurun—segera mandikan.`;
+        warningText = t.stage.warnings.veryDirty(s.name);
       } else if (s.cleanliness < 40) {
-        warningText = `${s.name} mulai kotor (<40%)! Bersihkan agar Bahagia tidak ikut turun.`;
+        warningText = t.stage.warnings.gettingDirty(s.name);
       } else if (drowsyStage === 'drowsy_light' && s.behavior !== 'SLEEPING') {
         const ctxTags = [
-          dayPhase === 'malam' ? 'Malam' : '',
-          s.weather === 'hujan' ? 'Hujan' : '',
+          dayPhase === 'malam' ? t.hud.dayPhases.malam : '',
+          s.weather === 'hujan' ? t.hud.rain : '',
         ]
           .filter(Boolean)
           .join(' · ');
-        warningText = `${s.name} mulai ngantuk (${Math.round(
-          s.energy
-        )}% Energi${ctxTags ? ` · ${ctxTags}` : ''})! Konsumsi energi aktivitas naik 1,15x.`;
+        warningText = t.stage.warnings.drowsyLight(s.name, Math.round(s.energy), ctxTags);
       } else if (s.happiness < 40) {
-        warningText = `${s.name} sedang ngambek (<40% Bahagia)! Efek main & elus berkurang sampai tenang.`;
+        warningText = t.stage.warnings.sulking(s.name);
       }
 
       return {
@@ -849,6 +858,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       };
     };
 
+    useEffect(() => {
+      if (gameStateRef.current === 'PLAYING') {
+        onHudUpdateRef.current(buildSnapshot());
+      }
+    }, [language]);
+
     const getRoomPlacementBounds = () => {
       const canvas = canvasRef.current;
       const s = simRef.current;
@@ -857,12 +872,56 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return computeScreenRoomBounds(s.lastRoomTransform, vw, vh);
     };
 
-    const getBowlEatPos = (bowlNx: number, bowlNy: number) => {
-      const eatLeft = bowlNx > 0.76;
+    const getBowlEatPos = (bowlNx: number, bowlNy: number, preferFromNx?: number) => {
+      const s = simRef.current;
+      const stageScale = getCatStageScale(s.lifeStage);
+      const eatDistX = 0.042 + 0.012 * stageScale;
+      const bounds = getRoomPlacementBounds();
+      const minFloorY = Math.max(bounds.minY, getWallFloorY(s.activeBackground, bowlNx));
+      const targetNy = clamp(bowlNy + 0.004, minFloorY, bounds.maxY);
+
+      const buildCandidate = (side: 'left' | 'right') => {
+        const rawNx = side === 'left' ? bowlNx - eatDistX : bowlNx + eatDistX;
+        const clamped = constrainItemPlacement(
+          s.activeBackground,
+          rawNx,
+          targetNy,
+          CAT_FOOTPRINT,
+          bounds,
+          [],
+          { nx: clamp(rawNx, bounds.minX, bounds.maxX), ny: targetNy }
+        );
+        return {
+          nx: clamped.nx,
+          ny: clamped.ny,
+          facing: (clamped.nx <= bowlNx ? 1 : -1) as 1 | -1,
+          distToBowl: Math.hypot(clamped.nx - bowlNx, (clamped.ny - bowlNy) * 1.4),
+        };
+      };
+
+      const left = buildCandidate('left');
+      const right = buildCandidate('right');
+      const preferLeft = preferFromNx !== undefined ? preferFromNx < bowlNx : bowlNx > 0.72;
+      const leftValid = Math.abs(left.nx - bowlNx) >= 0.022 && left.distToBowl <= 0.095;
+      const rightValid = Math.abs(right.nx - bowlNx) >= 0.022 && right.distToBowl <= 0.095;
+
+      const chosen =
+        preferLeft && leftValid
+          ? left
+          : !preferLeft && rightValid
+          ? right
+          : leftValid && !rightValid
+          ? left
+          : rightValid && !leftValid
+          ? right
+          : left.distToBowl <= right.distToBowl
+          ? left
+          : right;
+
       return {
-        nx: clamp(eatLeft ? bowlNx - 0.06 : bowlNx + 0.06, FLOOR_BOUNDS.minX, FLOOR_BOUNDS.maxX),
-        ny: clamp(bowlNy, FLOOR_BOUNDS.minY, FLOOR_BOUNDS.maxY),
-        facing: (eatLeft ? 1 : -1) as 1 | -1,
+        nx: chosen.nx,
+        ny: chosen.ny,
+        facing: chosen.facing,
       };
     };
 
@@ -974,7 +1033,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.targetNx = s.bedNx;
         s.targetNy = s.bedNy;
       } else if (s.behavior === 'EATING') {
-        const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+        const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy, s.nx);
         s.nx = eatPos.nx;
         s.ny = eatPos.ny;
         s.facing = eatPos.facing;
@@ -988,6 +1047,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (!item) return false;
 
       const now = Date.now();
+      const t = getTranslations(languageRef.current);
+      const foodLoc = t.catalog.foodItems[item.id];
       const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
 
       if (item.isFree) {
@@ -996,7 +1057,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           const rem = Math.ceil((s.cooldownsUntil.snack - now) / 1000);
           soundEngine.playBounce();
           spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: `Camilan Gratis cooldown (${formatCooldownMMSS(rem)})`,
+            label: t.stage.toasts.snackCooldown(formatCooldownMMSS(rem)),
             color: '#FDE68A',
             size: 13.5,
             vy: -26,
@@ -1010,7 +1071,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         if (Math.round(s.hunger) >= 100) {
           soundEngine.playBounce();
           spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: 'Kenyang sudah penuh (100)!',
+            label: t.stage.toasts.hungerFull,
             color: '#FCA5A5',
             size: 13.5,
             vy: -26,
@@ -1042,7 +1103,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           maxLife: 0.75,
         });
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: `${item.shortName} ditaruh di mangkuk (masih tidur)`,
+          label: t.stage.toasts.foodInBowlSleeping(foodLoc.shortName),
           color: '#FDE68A',
           size: 13,
           vy: -26,
@@ -1057,7 +1118,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.z = 0;
         s.vz = 0;
       }
-      const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+      const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy, s.nx);
       s.targetNx = eatPos.nx;
       s.targetNy = eatPos.ny;
       soundEngine.playMeow(1.08);
@@ -1080,7 +1141,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         maxLife: 0.75,
       });
       spawnParticle('text', catPos.x, catPos.y - 34, {
-        label: `${item.shortName}: +${item.hungerDelta} Kenyang · +${item.happinessDelta} Bahagia`,
+        label: t.stage.toasts.fedSuccess(foodLoc.shortName, item.hungerDelta, item.happinessDelta),
         color: '#FDE68A',
         size: 13,
         vy: -28,
@@ -1146,11 +1207,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             }
           );
         }
+        const t = getTranslations(languageRef.current);
         spawnParticle('text', tubPos.x, tubPos.y - 44, {
           label:
             bathId === 'spa_bath'
-              ? `Bersih Penuh 100% · +${item.happinessDelta} Bahagia`
-              : `+${item.cleanlinessDelta} Bersih · +${item.happinessDelta} Bahagia`,
+              ? t.stage.toasts.bathCompleteSpa(item.happinessDelta)
+              : t.stage.toasts.bathComplete(item.cleanlinessDelta, item.happinessDelta),
           color: bathId === 'spa_bath' ? '#FBCFE8' : '#BAE6FD',
           size: 13.5,
           vy: -28,
@@ -1206,12 +1268,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (!item) return false;
 
       const now = Date.now();
+      const t = getTranslations(languageRef.current);
+      const bathLoc = t.catalog.bathItems[item.id];
       const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
 
       if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Mandi dikunci saat kucing sedang tidur!',
+          label: t.stage.toasts.bathLockedSleep,
           color: '#FCA5A5',
           size: 13.5,
           vy: -26,
@@ -1223,7 +1287,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (s.isBathing || s.walkingToBath) {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: `${s.name} sudah menuju / sedang mandi di bak!`,
+          label: t.stage.toasts.bathAlreadyInProgress(s.name),
           color: '#BAE6FD',
           size: 13.5,
           vy: -26,
@@ -1235,7 +1299,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (Math.round(s.cleanliness) >= 100) {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Bersih sudah penuh (100)!',
+          label: t.stage.toasts.cleanFull,
           color: '#A7F3D0',
           size: 13.5,
           vy: -26,
@@ -1249,7 +1313,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           const rem = Math.ceil((s.cooldownsUntil.basicSoap - now) / 1000);
           soundEngine.playBounce();
           spawnParticle('text', catPos.x, catPos.y - 36, {
-            label: `Sabun Dasar cooldown (${formatCooldownMMSS(rem)})`,
+            label: t.stage.toasts.soapCooldown(formatCooldownMMSS(rem)),
             color: '#FDE68A',
             size: 13.5,
             vy: -26,
@@ -1288,7 +1352,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         enterBathtub();
         const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.06, s.lastRoomTransform);
         spawnParticle('text', tubScr.x, tubScr.y - 40, {
-          label: `Langsung mandi (${item.shortName})!`,
+          label: t.stage.toasts.bathImmediate(bathLoc.shortName),
           color: '#BAE6FD',
           size: 13,
           vy: -26,
@@ -1304,7 +1368,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       soundEngine.playMeow(1.08);
 
       spawnParticle('text', catPos.x, catPos.y - 36, {
-        label: `Menuju bak mandi (${item.shortName})...`,
+        label: t.stage.toasts.bathWalking(bathLoc.shortName),
         color: '#BAE6FD',
         size: 13,
         vy: -26,
@@ -1319,12 +1383,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const s = simRef.current;
       soundEngine.unlock();
       const now = Date.now();
+      const t = getTranslations(languageRef.current);
       const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
 
       if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Zzz... Sedang tidur',
+          label: t.stage.toasts.sleepingZzz,
           color: '#BFDBFE',
           size: 13.5,
           vy: -24,
@@ -1336,7 +1401,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (s.isBathing || s.walkingToBath) {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Tunggu sebentar, sedang mandi!',
+          label: t.stage.toasts.waitBathing,
           color: '#BAE6FD',
           size: 13.5,
           vy: -24,
@@ -1350,7 +1415,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const rem = Math.ceil((cdUntil - now) / 1000);
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: `${kind === 'full' ? 'Kasih Sayang' : 'Elus Singkat'} cooldown (${formatCooldownMMSS(rem)})`,
+          label: t.stage.toasts.petCooldown(kind === 'full', formatCooldownMMSS(rem)),
           color: '#FDE68A',
           size: 13,
           vy: -26,
@@ -1406,12 +1471,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         );
       }
 
-      const hungerSuffix = base.hunger < 0 ? ` · ${base.hunger} Kenyang` : '';
-      const rainSuffix = isRainSoothing ? ' · Tenang saat hujan' : '';
       spawnParticle('text', catPos.x, catPos.y - 36, {
-        label: isNgambek
-          ? `+${happyGain} Bahagia (Ngambek) · +0 Energi${hungerSuffix}${rainSuffix}`
-          : `+${happyGain} Bahagia · +0 Energi${hungerSuffix}${rainSuffix}`,
+        label: t.stage.toasts.petSuccess(happyGain, isNgambek, base.hunger, isRainSoothing),
         color: isNgambek ? '#FDE68A' : '#FBCFE8',
         size: 13.5,
         vy: -28,
@@ -1430,12 +1491,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const s = simRef.current;
       soundEngine.unlock();
       const now = Date.now();
+      const t = getTranslations(languageRef.current);
       const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
 
       if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Kucing sedang tidur!',
+          label: t.stage.toasts.alreadySleeping,
           color: '#BFDBFE',
           size: 13.5,
           vy: -26,
@@ -1447,7 +1509,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (Math.round(s.energy) >= 100) {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Energi sudah penuh (100)!',
+          label: t.stage.toasts.energyFull,
           color: '#FCA5A5',
           size: 13.5,
           vy: -26,
@@ -1464,7 +1526,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (dayPhase !== 'malam' && s.energy > 85) {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Masih segar (>85 Energi) di Pagi/Siang! Menolak tidur',
+          label: t.stage.toasts.tooFreshToSleep,
           color: '#FCA5A5',
           size: 13,
           vy: -26,
@@ -1476,7 +1538,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (dayPhase !== 'malam' && s.energy > 70 && mode === 'full_rest') {
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Energi >70 di Pagi/Siang! Hanya mau tidur sebentar',
+          label: t.stage.toasts.onlyBriefNapAllowed,
           color: '#FDE68A',
           size: 13,
           vy: -26,
@@ -1490,6 +1552,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       }
 
       const opt = SLEEP_OPTIONS.find((o) => o.id === mode) ?? SLEEP_OPTIONS[0];
+      const sleepLoc = t.catalog.sleepOptions[opt.id];
       const isBriefDayNap = dayPhase !== 'malam' && s.energy > 70 && mode === 'power_nap';
 
       s.lastSleepMode = opt.id;
@@ -1540,19 +1603,29 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       }
 
       const sleepBonusTags = [
-        dayPhase === 'pagi' ? 'Pagi +10%' : dayPhase === 'malam' ? 'Malam +20%' : '',
-        s.weather === 'hujan' ? 'Hujan +10%' : '',
-        isLateNightDrowsyHour(s.gameHour) ? 'Pulih 3x' : '',
+        dayPhase === 'pagi'
+          ? t.stage.toasts.sleepBonusMorning
+          : dayPhase === 'malam'
+          ? t.stage.toasts.sleepBonusNight
+          : '',
+        s.weather === 'hujan' ? t.stage.toasts.sleepBonusRain : '',
+        isLateNightDrowsyHour(s.gameHour) ? t.stage.toasts.sleepBonusLateNight : '',
       ].filter(Boolean);
-      const sleepBonusTag = sleepBonusTags.length > 0 ? ` · Bonus ${sleepBonusTags.join(' & ')}` : '';
+      const sleepBonusTag =
+        sleepBonusTags.length > 0 ? ` · ${sleepBonusTags.join(' & ')}` : '';
       soundEngine.playSleep();
       const noticePos = immediateOnBed
         ? roomToScreen(s.bedNx, s.bedNy - 0.08, s.lastRoomTransform)
         : catPos;
       spawnParticle('text', noticePos.x, noticePos.y - 36, {
         label: isBriefDayNap
-          ? `Masih cukup segar — tidur sebentar (1,5 mnt · +${Math.round(s.sleepTargetEnergy)} Energi)`
-          : `${opt.shortName} (${Math.round(opt.durationSec / 60)} mnt${sleepBonusTag}): ${opt.description}`,
+          ? t.stage.toasts.briefDayNapStart(Math.round(s.sleepTargetEnergy))
+          : t.stage.toasts.sleepStart(
+              sleepLoc.shortName,
+              Math.round(opt.durationSec / 60),
+              sleepBonusTag,
+              sleepLoc.description
+            ),
         color: '#BFDBFE',
         size: 13,
         vy: -26,
@@ -1567,6 +1640,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       soundEngine.unlock();
       if (s.behavior !== 'SLEEPING' && s.sleepMode === 'none') return;
 
+      const t = getTranslations(languageRef.current);
       const prevMode = s.sleepMode;
       const wasInterrupted = s.sleepRemainingSec > 0.5;
       const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
@@ -1574,7 +1648,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (wasInterrupted) {
         s.happiness = clamp(s.happiness - 10, 0, 100);
         spawnParticle('text', catPos.x, catPos.y - 36, {
-          label: 'Tidur terganggu! -10 Bahagia',
+          label: t.stage.toasts.sleepInterrupted,
           color: '#FCA5A5',
           size: 14,
           vy: -28,
@@ -1613,22 +1687,23 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     const canStartMiniGameInternal = (showNotice = true): boolean => {
       const s = simRef.current;
       const now = Date.now();
+      const t = getTranslations(languageRef.current);
       const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
       let errMsg: string | null = null;
 
       if (s.lifeStage === 'baby') {
-        errMsg = 'Mini-Game terbuka mulai Fase Anak!';
+        errMsg = t.stage.toasts.miniGameNeedChild;
       } else if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
-        errMsg = 'Bermain dikunci saat kucing sedang tidur!';
+        errMsg = t.stage.toasts.playLockedSleep;
       } else if (s.isSick) {
-        errMsg = 'Sedang sakit — sembuhkan dulu sebelum Mini-Game!';
+        errMsg = t.stage.toasts.miniGameNeedHeal;
       } else if (s.energy < 20) {
-        errMsg = 'Energi < 20! Terlalu lemas untuk Mini-Game';
+        errMsg = t.stage.toasts.miniGameLowEnergy;
       } else if (s.hunger <= 2) {
-        errMsg = 'Terlalu lapar! Beri makan dulu';
+        errMsg = t.stage.toasts.tooHungry;
       } else if (s.cooldownsUntil.miniGame > now) {
         const rem = Math.ceil((s.cooldownsUntil.miniGame - now) / 1000);
-        errMsg = `Mini-Game cooldown (${formatCooldownMMSS(rem)})`;
+        errMsg = t.stage.toasts.miniGameCooldown(formatCooldownMMSS(rem));
       }
 
       if (errMsg) {
@@ -1651,6 +1726,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const s = simRef.current;
       soundEngine.unlock();
       const now = Date.now();
+      const t = getTranslations(languageRef.current);
       const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
 
       if (s.behavior === 'SLEEPING' || s.sleepMode !== 'none') {
@@ -1658,7 +1734,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.playSession.active = false;
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: 'Bermain dikunci saat kucing sedang tidur!',
+          label: t.stage.toasts.playLockedSleep,
           color: '#FCA5A5',
           size: 13.5,
           vy: -28,
@@ -1673,7 +1749,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.playSession.active = false;
         soundEngine.playBounce();
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: 'Sedang mandi di bak!',
+          label: t.stage.toasts.bathingNow,
           color: '#BAE6FD',
           size: 13.5,
           vy: -28,
@@ -1688,14 +1764,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (isFreshSession) {
         let blockReason: string | null = null;
         if (s.isSick) {
-          blockReason = 'Sedang sakit — Mainan Interaktif ditolak!';
+          blockReason = t.stage.toasts.playSickBlocked;
         } else if (s.energy <= 20) {
-          blockReason = 'Sangat ngantuk (<=20 Energi)! Mainan Interaktif ditolak';
+          blockReason = t.stage.toasts.playLowEnergyBlocked;
         } else if (s.hunger <= 2) {
-          blockReason = 'Terlalu lapar! Beri makan dulu';
+          blockReason = t.stage.toasts.tooHungry;
         } else if (s.cooldownsUntil.interactivePlay > now) {
           const rem = Math.ceil((s.cooldownsUntil.interactivePlay - now) / 1000);
-          blockReason = `Mainan Interaktif cooldown (${formatCooldownMMSS(rem)})`;
+          blockReason = t.stage.toasts.playCooldown(formatCooldownMMSS(rem));
         }
 
         if (blockReason) {
@@ -1757,9 +1833,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         };
         if (isLateNight) {
           spawnParticle('text', catPos.x, catPos.y - 36, {
-            label: `Mengantuk berat (01:00–06:00)! Energi main 5x (-${displayExpectedCost.toFixed(1)} Energi${
-              isHappyAlreadyFull ? ' · +0 Bahagia' : ''
-            })`,
+            label: t.stage.toasts.playLateNightNotice(
+              displayExpectedCost.toFixed(1),
+              isHappyAlreadyFull
+            ),
             color: '#FCA5A5',
             size: 13,
             vy: -24,
@@ -1768,23 +1845,25 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         } else if (isHappyAlreadyFull) {
           spawnParticle('text', catPos.x, catPos.y - 36, {
             label: isDrowsyPenalty
-              ? `Mulai Ngantuk · Energi main 1,15x (-${targetCost.toFixed(1)} Energi · +0 Bahagia)`
-              : 'Bahagia penuh (100) · +0 Bahagia',
+              ? t.stage.toasts.playHappyFullDrowsy(targetCost.toFixed(1))
+              : t.stage.toasts.playHappyFull,
             color: '#FDE68A',
             size: 13,
             vy: -24,
             maxLife: 1.65,
           });
         } else if (reason !== 'none' || isDrowsyPenalty || phaseMult.playHappyMult > 1) {
-          const middayBonus = phaseMult.playHappyMult > 1 ? ' · Bonus Siang +10%' : '';
           const reasonLabel =
             reason === 'ngambek'
-              ? `Ngambek (<40) · Main berkurang (+${targetHappy} Bahagia${isDrowsyPenalty ? ' · Energi 1,15x' : ''})`
+              ? t.stage.toasts.playSulking(targetHappy, isDrowsyPenalty)
               : isDrowsyPenalty
-              ? `Mulai Ngantuk · Energi main naik 1,15x (-${targetCost.toFixed(1)} Energi${middayBonus})`
+              ? t.stage.toasts.playDrowsyPenalty(
+                  targetCost.toFixed(1),
+                  phaseMult.playHappyMult > 1
+                )
               : reason !== 'none'
-              ? `Lemas · Main kurang maksimal (+${targetHappy} Bahagia)`
-              : `Main Siang! +${targetHappy} Bahagia (Bonus +10%)`;
+              ? t.stage.toasts.playWeakened(targetHappy)
+              : t.stage.toasts.playMiddayBonus(targetHappy);
           spawnParticle('text', catPos.x, catPos.y - 36, {
             label: reasonLabel,
             color: reason === 'none' && !isDrowsyPenalty ? '#FDE047' : '#FDE68A',
@@ -1857,10 +1936,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const item = FOOD_ITEMS.find((f) => f.id === foodId);
         if (!item || s.coins < item.price) return false;
         if (useImmediately && Math.round(s.hunger) >= 100) {
+          const t = getTranslations(languageRef.current);
           const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
           soundEngine.playBounce();
           spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: 'Kenyang sudah penuh (100)!',
+            label: t.stage.toasts.hungerFull,
             color: '#FCA5A5',
             size: 13.5,
             vy: -26,
@@ -1893,15 +1973,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             s.walkingToBath ||
             Math.round(s.cleanliness) >= 100)
         ) {
+          const t = getTranslations(languageRef.current);
           const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
           soundEngine.playBounce();
           spawnParticle('text', catPos.x, catPos.y - 34, {
             label:
               s.behavior === 'SLEEPING' || s.sleepMode !== 'none'
-                ? 'Mandi dikunci saat tidur!'
+                ? t.stage.toasts.bathLockedSleep
                 : s.isBathing || s.walkingToBath
-                ? 'Sedang mandi di bak!'
-                : 'Bersih sudah penuh (100)!',
+                ? t.stage.toasts.bathingNow
+                : t.stage.toasts.cleanFull,
             color: '#FCA5A5',
             size: 13.5,
             vy: -26,
@@ -1951,11 +2032,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       giveMedicine: () => {
         const s = simRef.current;
         soundEngine.unlock();
+        const t = getTranslations(languageRef.current);
         if (s.isRecovering) {
           soundEngine.playBounce();
           const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
           spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: 'Obat sudah diberikan · Sedang pulih bertahap',
+            label: t.stage.toasts.medAlreadyGiven,
             color: '#6EE7B7',
             size: 13,
             vy: -26,
@@ -1967,7 +2049,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           soundEngine.playBounce();
           const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
           spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: `${s.name} sedang sehat! Obat hanya saat sakit`,
+            label: t.stage.toasts.medNotNeeded(s.name),
             color: '#FDE68A',
             size: 13,
             vy: -26,
@@ -1984,7 +2066,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         soundEngine.playChime();
         const catPos = roomToScreen(s.nx, s.ny - 0.06, s.lastRoomTransform);
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: 'Diberi Obat · Pemulihan dimulai (efek hilang di 90%)',
+          label: t.stage.toasts.medGiven,
           color: '#6EE7B7',
           size: 13.5,
           vy: -28,
@@ -2049,19 +2131,26 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
         addXpAndCoins(12, Math.max(0, coinsEarned), catPos.x, catPos.y);
 
+        const t = getTranslations(languageRef.current);
         const bonusTags = isHappyFull
           ? []
           : [
-              phaseMult.playHappyMult > 1 ? 'Siang +10%' : '',
-              s.weather === 'hujan' ? 'Hujan +5' : '',
+              phaseMult.playHappyMult > 1 ? t.stage.toasts.playMiddayTag : '',
+              s.weather === 'hujan' ? t.stage.toasts.rainTag : '',
             ].filter(Boolean);
         const bonusTag = bonusTags.length > 0 ? ` (${bonusTags.join(' · ')})` : '';
         spawnParticle('text', catPos.x, catPos.y - 38, {
           label: isHappyFull
-            ? `+0 Bahagia · -${energyCost} Energi · -${hungerCost} Kenyang · -${cleanCost} Bersih`
+            ? t.stage.toasts.miniGameSummaryFull(energyCost, hungerCost, cleanCost)
             : reason !== 'none'
-            ? `+${finalHappy} Bahagia (Berkurang) · -${energyCost} Energi · -${cleanCost} Bersih`
-            : `+${finalHappy} Bahagia${bonusTag} · -${energyCost} Energi · -${hungerCost} Kenyang · -${cleanCost} Bersih`,
+            ? t.stage.toasts.miniGameSummaryReduced(finalHappy, energyCost, cleanCost)
+            : t.stage.toasts.miniGameSummaryNormal(
+                finalHappy,
+                bonusTag,
+                energyCost,
+                hungerCost,
+                cleanCost
+              ),
           color: isHappyFull || reason !== 'none' || isDrowsyPenalty ? '#FDE68A' : '#FBCFE8',
           size: 13.5,
           vy: -28,
@@ -2099,7 +2188,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         if (s.behavior === 'SLEEPING' || s.behavior === 'ROLLING' || s.behavior === 'DOZING') {
           s.behavior = 'WALKING';
         }
-        const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+        const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy, s.nx);
         s.targetNx = eatPos.nx;
         s.targetNy = eatPos.ny;
         soundEngine.playMeow(1.15);
@@ -2135,9 +2224,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.activeBackground = bgId;
         reconcileDraggablePositions();
         soundEngine.playChime();
+        const t = getTranslations(languageRef.current);
         const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: `Suasana Baru: ${option.name}!`,
+          label: t.stage.toasts.newBackground(t.catalog.backgrounds[bgId].name),
           color: '#FDE68A',
           size: 14,
           vy: -28,
@@ -2162,9 +2252,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.unlockedBeds = [...s.unlockedBeds, bedId];
         s.activeBed = bedId;
         soundEngine.playChime();
+        const t = getTranslations(languageRef.current);
         const bedPos = roomToScreen(s.bedNx, s.bedNy - 0.04, s.lastRoomTransform);
         spawnParticle('text', bedPos.x, bedPos.y - 34, {
-          label: `Kasur Baru: ${option.name}!`,
+          label: t.stage.toasts.newBed(t.catalog.beds[bedId].name),
           color: '#A7F3D0',
           size: 14,
           vy: -28,
@@ -2189,9 +2280,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.unlockedBathtubs = [...s.unlockedBathtubs, tubId];
         s.activeBathtub = tubId;
         soundEngine.playChime();
+        const t = getTranslations(languageRef.current);
         const tubPos = roomToScreen(s.tubNx, s.tubNy - 0.04, s.lastRoomTransform);
         spawnParticle('text', tubPos.x, tubPos.y - 34, {
-          label: `Bak Mandi Baru: ${option.name}!`,
+          label: t.stage.toasts.newBathtub(t.catalog.bathtubs[tubId].name),
           color: '#BAE6FD',
           size: 14,
           vy: -28,
@@ -2219,9 +2311,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.unlockedToys = [...s.unlockedToys, toyId];
         s.activeToy = toyId;
         soundEngine.playChime();
+        const t = getTranslations(languageRef.current);
         const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
         spawnParticle('text', catPos.x, catPos.y - 34, {
-          label: `Mainan Baru: ${option.name}!`,
+          label: t.stage.toasts.newToy(t.catalog.toys[toyId].name),
           color: '#FDE68A',
           size: 14,
           vy: -28,
@@ -2265,9 +2358,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
         if (!isUnlocked) {
           soundEngine.playChime();
+          const t = getTranslations(languageRef.current);
           const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
           spawnParticle('text', catPos.x, catPos.y - 34, {
-            label: `Kostum Baru: ${option.name}!`,
+            label: t.stage.toasts.newCostume(t.catalog.accessories[accId].name),
             color: '#FDE68A',
             size: 14,
             vy: -28,
@@ -2505,6 +2599,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.isDroppingFromDrag = false;
         s.catSwingAngle = 0;
         s.catSwingVel = 0;
+        s.catRopeAngle = 0;
+        s.catRopeVel = 0;
         s.walkingToBath = false;
         s.pendingBathId = null;
         s.isBathing = false;
@@ -2773,6 +2869,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.isDroppingFromDrag = false;
         s.catSwingAngle = 0;
         s.catSwingVel = 0;
+        s.catRopeAngle = 0;
+        s.catRopeVel = 0;
         s.walkingToBath = false;
         s.pendingBathId = null;
         s.isBathing = false;
@@ -2822,11 +2920,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         }
 
         if (offline.elapsedSeconds >= 60 && offline.hungerLost >= 1) {
+          const t = getTranslations(languageRef.current);
           const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
-          const healthNote =
-            offline.healthLost >= 1 ? ` · Sehat -${Math.round(offline.healthLost)}%` : '';
           spawnParticle('text', catPos.x, catPos.y - 36, {
-            label: `Lama pergi · Kenyang -${Math.round(offline.hungerLost)}%${healthNote}`,
+            label: t.stage.toasts.awaySummary(
+              Math.round(offline.hungerLost),
+              Math.round(offline.healthLost)
+            ),
             color: offline.dippedBelow20 ? '#FCA5A5' : '#FDE68A',
             size: 13,
             vy: -24,
@@ -3128,7 +3228,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               s.lifeStage = 'child';
               s.stageElapsedSec = 0;
               s.day = 1;
-              celebrateStageEvolution('child', 'Mini-Game Terbuka');
+              celebrateStageEvolution('child', getTranslations(languageRef.current).stage.toasts.miniGameUnlocked);
             } else if (s.lifeStage === 'child') {
               s.lifeStage = 'teen';
               s.stageElapsedSec = 0;
@@ -3143,11 +3243,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               s.day = 4;
               celebrateStageEvolution(
                 'adult',
-                branch === 'prima'
-                  ? 'Dewasa Prima'
-                  : branch === 'mandiri'
-                  ? 'Dewasa Mandiri'
-                  : 'Dewasa Sensitif'
+                getTranslations(languageRef.current).catalog.adultBranches[branch].label
               );
             } else if (s.lifeStage === 'adult') {
               s.lifeStage = 'senior';
@@ -3408,12 +3504,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               const currentDayPhase = getDayPhaseFromHour(s.gameHour);
               if (currentDayPhase !== s.lastDayPhaseNotice) {
                 s.lastDayPhaseNotice = currentDayPhase;
+                const t = getTranslations(languageRef.current);
                 const phaseBanner =
                   currentDayPhase === 'pagi'
-                    ? 'Pagi tiba (06:00) · Bonus tidur +10% Energi'
+                    ? t.stage.toasts.phaseBannerPagi
                     : currentDayPhase === 'siang'
-                    ? 'Siang tiba (12:00) · Main +10% Bahagia'
-                    : 'Malam tiba (18:00) · Bonus tidur +20% Energi';
+                    ? t.stage.toasts.phaseBannerSiang
+                    : t.stage.toasts.phaseBannerMalam;
                 const phaseColor =
                   currentDayPhase === 'malam' ? '#C4B5FD' : '#FDE68A';
                 spawnParticle('text', viewW * 0.5, Math.max(82, viewH * 0.18), {
@@ -3451,17 +3548,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     : 130 + Math.random() * 80;
 
                 if (nextWeather !== prevW) {
+                  const t = getTranslations(languageRef.current);
                   const phaseLabelNotice =
                     currentDayPhase === 'pagi'
-                      ? 'Pagi'
+                      ? t.hud.dayPhases.pagi
                       : currentDayPhase === 'malam'
-                      ? 'Malam'
-                      : 'Siang';
+                      ? t.hud.dayPhases.malam
+                      : t.hud.dayPhases.siang;
                   spawnParticle('text', viewW * 0.5, Math.max(82, viewH * 0.18), {
                     label:
                       nextWeather === 'hujan'
-                        ? `Hujan ${phaseLabelNotice} turun · Tidur +10% Energi`
-                        : `Hujan reda · Langit ${phaseLabelNotice} cerah`,
+                        ? t.stage.toasts.rainStart(phaseLabelNotice)
+                        : t.stage.toasts.rainStop(phaseLabelNotice),
                     color: nextWeather === 'hujan' ? '#93C5FD' : '#FDE68A',
                     size: 14,
                     vx: 0,
@@ -3490,7 +3588,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.stageElapsedSec = 0;
                 s.day = 1;
                 transitionedStage = true;
-                celebrateStageEvolution('child', 'Mini-Game Terbuka');
+                celebrateStageEvolution(
+                  'child',
+                  getTranslations(languageRef.current).stage.toasts.miniGameUnlocked
+                );
               } else if (
                 s.lifeStage === 'child' &&
                 s.stageElapsedSec >= LIFE_STAGES.child.durationSec
@@ -3512,11 +3613,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.day = 4;
                 transitionedStage = true;
                 const branchTitle =
-                  branch === 'prima'
-                    ? 'Dewasa Prima'
-                    : branch === 'mandiri'
-                    ? 'Dewasa Mandiri'
-                    : 'Dewasa Sensitif';
+                  getTranslations(languageRef.current).catalog.adultBranches[branch].label;
                 celebrateStageEvolution('adult', branchTitle);
               } else if (
                 s.lifeStage === 'adult' &&
@@ -3548,9 +3645,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.day = nextCalDay;
                   s.coins += 10;
                   soundEngine.playChime();
+                  const t = getTranslations(languageRef.current);
                   const pos = roomToScreen(s.nx, s.ny - 0.1, rt);
                   spawnParticle('text', pos.x, pos.y - 30, {
-                    label: `Hari ke-${s.day}! +10 Koin`,
+                    label: t.stage.toasts.newDayCoins(s.day),
                     color: '#A7F3D0',
                     size: 16,
                     vy: -32,
@@ -3594,9 +3692,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.sickReason = 'overwork';
                 s.zeroEnergyElapsedSec = 0;
                 soundEngine.playMeow(0.76);
+                const t = getTranslations(languageRef.current);
                 const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                 spawnParticle('text', catPos.x, catPos.y - 36, {
-                  label: 'Overwork! Energi 0 terlalu lama — Kucing jatuh sakit!',
+                  label: t.stage.toasts.overworkSick,
                   color: '#FCA5A5',
                   size: 13.5,
                   vy: -26,
@@ -3746,14 +3845,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.idleDecisionTimer = 2.0;
                   soundEngine.playMeow(1.04);
                   soundEngine.playChime();
+                  const t = getTranslations(languageRef.current);
                   const cPos = roomToScreen(s.nx, s.ny - 0.08, rt);
                   spawnParticle('text', cPos.x, cPos.y - 36, {
                     label:
                       completedMode === 'auto_sleep'
-                        ? `Auto-Sleep selesai! Energi pulih +${doneEnergyGain}`
+                        ? t.stage.toasts.sleepCompleteAuto(doneEnergyGain)
                         : completedMode === 'power_nap'
-                        ? `Power Nap selesai! +${doneEnergyGain} Energi · +${doneHappyGain} Bahagia`
-                        : `Tidur Penuh selesai! +${doneEnergyGain} Energi · +${doneHappyGain} Bahagia`,
+                        ? t.stage.toasts.sleepCompletePower(doneEnergyGain, doneHappyGain)
+                        : t.stage.toasts.sleepCompleteFull(doneEnergyGain, doneHappyGain),
                     color: '#BFDBFE',
                     size: 13.5,
                     vy: -28,
@@ -3876,14 +3976,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 const nextDrowsyTier = getDrowsyStage(s.energy, dayPhase, s.weather, s.gameHour);
                 if (nextDrowsyTier !== s.lastDrowsyNoticeTier) {
                   if (nextDrowsyTier === 'drowsy_light' && s.lastDrowsyNoticeTier === 'fresh') {
+                    const t = getTranslations(languageRef.current);
                     const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                     spawnParticle('text', catPos.x, catPos.y - 34, {
                       label:
                         dayPhase === 'malam'
-                          ? 'Mulai ngantuk (≤50 Energi · Malam) · Waktunya tidur!'
+                          ? t.stage.toasts.drowsyNoticeNight
                           : s.weather === 'hujan'
-                          ? 'Mulai ngantuk (≤45 Energi · Hujan) · Syahdu untuk tidur!'
-                          : 'Mulai ngantuk (21–40 Energi) · Istirahatkan yuk!',
+                          ? t.stage.toasts.drowsyNoticeRain
+                          : t.stage.toasts.drowsyNoticeNormal,
                       color: '#FDE68A',
                       size: 13,
                       vy: -24,
@@ -3893,11 +3994,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     nextDrowsyTier === 'drowsy_heavy' &&
                     (s.lastDrowsyNoticeTier === 'fresh' || s.lastDrowsyNoticeTier === 'drowsy_light')
                   ) {
+                    const t = getTranslations(languageRef.current);
                     const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                     spawnParticle('text', catPos.x, catPos.y - 34, {
                       label: isLateNightNow
-                        ? 'Pukul 01:00–06:00: Mengantuk berat! Menolak berlari · Tidur pulih 3x lebih cepat'
-                        : 'Sangat ngantuk (1–20 Energi)! Segera tidurkan',
+                        ? t.stage.toasts.drowsyHeavyLateNight
+                        : t.stage.toasts.drowsyHeavyNormal,
                       color: isLateNightNow ? '#FDE68A' : '#FCA5A5',
                       size: 13.5,
                       vy: -24,
@@ -3940,9 +4042,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.behavior = 'SLEEPING';
                   s.facing = 1;
                   soundEngine.playSleep();
+                  const t = getTranslations(languageRef.current);
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 34, {
-                    label: `Kelelahan Total! Masuk [AUTO-SLEEP] 4 mnt (+${Math.round(autoEnergyTarget)} Energi)`,
+                    label: t.stage.toasts.autoSleepStart(Math.round(autoEnergyTarget)),
                     color: '#93C5FD',
                     size: 13.5,
                     vy: -28,
@@ -4004,9 +4107,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.isSick = false;
                   s.sickReason = null;
                   soundEngine.playChime();
+                  const t = getTranslations(languageRef.current);
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 36, {
-                    label: 'Kesehatan 90%! Efek sakit hilang!',
+                    label: t.stage.toasts.sickCleared90,
                     color: '#6EE7B7',
                     size: 14,
                     vy: -26,
@@ -4020,9 +4124,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.isSick = false;
                   s.sickReason = null;
                   soundEngine.playMeow(1.08);
+                  const t = getTranslations(languageRef.current);
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 36, {
-                    label: `${s.name} Pulih Total 100%!`,
+                    label: t.stage.toasts.recovered100(s.name),
                     color: '#34D399',
                     size: 14.5,
                     vy: -28,
@@ -4078,9 +4183,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.isSick = true;
                   s.sickReason = s.sickReason ?? 'health';
                   soundEngine.playMeow(0.76);
+                  const t = getTranslations(languageRef.current);
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 36, {
-                    label: `Kesehatan ${Math.round(s.health)}%! ${s.name} jatuh sakit!`,
+                    label: t.stage.toasts.becameSickHealth(Math.round(s.health), s.name),
                     color: '#FCA5A5',
                     size: 14,
                     vy: -26,
@@ -4136,9 +4242,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.isSick = true;
                   s.sickReason = 'dirty_zero';
                   soundEngine.playMeow(0.76);
+                  const t = getTranslations(languageRef.current);
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 36, {
-                    label: 'Kebersihan 0%! Kucing jatuh sakit!',
+                    label: t.stage.toasts.becameSickDirtyZero,
                     color: '#FCA5A5',
                     size: 14,
                     vy: -26,
@@ -4166,9 +4273,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     s.sickReason = 'chronic_dirty';
                     s.lowCleanlinessStrikes = Math.max(0, s.lowCleanlinessStrikes - 2);
                     soundEngine.playMeow(0.76);
+                    const t = getTranslations(languageRef.current);
                     const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                     spawnParticle('text', catPos.x, catPos.y - 36, {
-                      label: 'Terlalu sering kotor! Kucing jatuh sakit',
+                      label: t.stage.toasts.becameSickChronicDirty,
                       color: '#FCA5A5',
                       size: 14,
                       vy: -26,
@@ -4425,9 +4533,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   s.cleanliness = clamp(s.cleanliness - remCln, 0, 100);
                   const totalEnergyShown =
                     Math.round((s.playSession.appliedEnergyCost + remE) * 10) / 10;
+                  const t = getTranslations(languageRef.current);
                   const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
                   spawnParticle('text', catPos.x, catPos.y - 34, {
-                    label: `Main Selesai: +${s.playSession.targetHappiness} Bahagia · -${totalEnergyShown} Energi · -${s.playSession.targetHungerCost} Kenyang`,
+                    label: t.stage.toasts.playSessionComplete(
+                      s.playSession.targetHappiness,
+                      totalEnergyShown,
+                      s.playSession.targetHungerCost
+                    ),
                     color: '#FBCFE8',
                     size: 13,
                     vy: -28,
@@ -4440,16 +4553,75 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
             }
 
-            // Cat vertical physics & scruff-drag pendulum swing
+            // Cat vertical physics & realistic scruff-drag pendulum with mass, inertia & air drag
             if (s.isDraggingCat) {
               s.catDragTime += dt;
               s.catDragOffsetX *= Math.exp(-26 * dt);
               s.catDragOffsetY *= Math.exp(-16 * dt);
 
               const dragCursorGapPx = getCatDragCursorGapPx(viewH, s.catDragIsTouch);
-              const targetHeadX = s.catDragPtrX - s.catDragOffsetX;
-              const targetHeadY = Math.max(14, s.catDragPtrY + dragCursorGapPx - s.catDragOffsetY);
+              const anchorX = s.catDragPtrX - s.catDragOffsetX;
+              const anchorY = s.catDragPtrY - s.catDragOffsetY;
               const bounds = getRoomPlacementBounds();
+              const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
+
+              const stageMass =
+                s.lifeStage === 'baby'
+                  ? 0.72
+                  : s.lifeStage === 'child'
+                  ? 0.85
+                  : s.lifeStage === 'teen'
+                  ? 0.94
+                  : s.lifeStage === 'senior'
+                  ? 1.05
+                  : 1.0;
+
+              const effPendulumLen = Math.max(84, dragCursorGapPx + 76 * catDrawScale);
+              const gPx = 2750 * Math.max(0.65, rt.scale);
+
+              const rawAnchorVx = (anchorX - s.catDragPrevAnchorX) / Math.max(0.004, dt);
+              s.catDragPrevAnchorX = anchorX;
+              const velAlpha = 1 - Math.exp(-28 * dt);
+              const prevSmoothVx = s.catDragSmoothAnchorVx;
+              s.catDragSmoothAnchorVx += (rawAnchorVx - prevSmoothVx) * velAlpha;
+              const anchorAccelX = clamp(
+                (s.catDragSmoothAnchorVx - prevSmoothVx) / Math.max(0.004, dt),
+                -10500,
+                10500
+              );
+
+              const maxRopeAngle = 0.86;
+              const subSteps = Math.max(1, Math.ceil(dt / 0.004));
+              const subDt = dt / subSteps;
+              const airLinear = 0.0115 / stageMass;
+              const airQuad = 0.0000048 / stageMass;
+              const pivotFriction = 0.82;
+
+              for (let stepIdx = 0; stepIdx < subSteps; stepIdx++) {
+                const theta = s.catRopeAngle;
+                const omega = s.catRopeVel;
+                const cosTheta = Math.cos(theta);
+                const sinTheta = Math.sin(theta);
+
+                const gravAlpha = -(gPx / effPendulumLen) * sinTheta;
+                const inertiaAlpha = -(anchorAccelX / effPendulumLen) * cosTheta;
+                const catAirVx = s.catDragSmoothAnchorVx + effPendulumLen * omega * cosTheta;
+                const airDecel = airLinear * catAirVx + airQuad * catAirVx * Math.abs(catAirVx);
+                const airDragAlpha = -airDecel * cosTheta;
+                const dampingAlpha = -pivotFriction * omega;
+                const limitAlpha =
+                  Math.abs(theta) > 0.72
+                    ? -Math.sign(theta) * (Math.abs(theta) - 0.72) * 55
+                    : 0;
+
+                const totalAlpha =
+                  gravAlpha + inertiaAlpha + airDragAlpha + dampingAlpha + limitAlpha;
+                s.catRopeVel = clamp(omega + totalAlpha * subDt, -14, 14);
+                s.catRopeAngle = clamp(theta + s.catRopeVel * subDt, -maxRopeAngle, maxRopeAngle);
+              }
+
+              const targetHeadX = anchorX + Math.sin(s.catRopeAngle) * dragCursorGapPx;
+              const targetHeadY = Math.max(14, anchorY + Math.cos(s.catRopeAngle) * dragCursorGapPx);
               const rawPtrNx = (targetHeadX - rt.offsetX) / rt.drawW;
               const ptrNx = clamp(
                 rawPtrNx,
@@ -4459,7 +4631,6 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
               s.nx = ptrNx;
 
-              const catDrawScale = Math.max(0.43, rt.scale * 0.72) * getCatStageScale(s.lifeStage);
               const headLocalPx = CAT_DRAG_SCRUFF_LOCAL_Y * catDrawScale;
               const minHoverPx = 0.055 * rt.drawH;
               const bottomFootMarginPx = Math.ceil(30 * catDrawScale) + 6;
@@ -4476,13 +4647,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               s.z = clamp(desiredJumpPx / rt.drawH, 0.0, 1.15);
               s.vz = 0;
 
-              const rawVx = (ptrNx - s.catDragPrevPtrNx) / Math.max(0.004, dt);
-              s.catDragPrevPtrNx = ptrNx;
-              const smoothAlpha = 1 - Math.exp(-16 * dt);
-              s.catDragSmoothVx += (rawVx - s.catDragSmoothVx) * smoothAlpha;
-
-              const targetSwing = clamp(s.catDragSmoothVx * 1.15, -1.2, 1.2);
-              const springAccel = (targetSwing - s.catSwingAngle) * 30 - s.catSwingVel * 6.0;
+              const targetSwing = clamp(
+                -s.catRopeAngle * 1.55 - s.catRopeVel * 0.06,
+                -1.25,
+                1.25
+              );
+              const springAccel = (targetSwing - s.catSwingAngle) * 42 - s.catSwingVel * 8.5;
               s.catSwingVel += springAccel * dt;
               s.catSwingAngle = clamp(s.catSwingAngle + s.catSwingVel * dt, -1.25, 1.25);
             } else if (s.z > 0 || s.vz !== 0) {
@@ -4491,6 +4661,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.nx += (s.catDropTargetNx - s.nx) * lerpAlpha;
                 s.ny += (s.catDropTargetNy - s.ny) * lerpAlpha;
                 s.catSwingAngle *= Math.exp(-10 * dt);
+                s.catRopeAngle *= Math.exp(-10 * dt);
+                s.catRopeVel *= Math.exp(-10 * dt);
               }
               s.vz -= (s.isDroppingFromDrag ? 2.1 : 1.65) * dt;
               s.z += s.vz * dt;
@@ -4501,6 +4673,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.isDroppingFromDrag = false;
                 s.catSwingAngle = 0;
                 s.catSwingVel = 0;
+                s.catRopeAngle = 0;
+                s.catRopeVel = 0;
                 s.scaleX = wasDragDrop ? 1.15 : 1.12;
                 s.scaleY = wasDragDrop ? 0.85 : 0.89;
                 if (wasDragDrop) {
@@ -4581,6 +4755,16 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.behavior = 'IDLE';
               }
             } else if (s.behavior === 'EATING') {
+              const eatPos = getBowlEatPos(
+                s.bowlNx,
+                s.bowlNy,
+                s.facing === 1 ? s.bowlNx - 0.05 : s.bowlNx + 0.05
+              );
+              const eatAlignAlpha = 1 - Math.exp(-18 * dt);
+              s.nx += (eatPos.nx - s.nx) * eatAlignAlpha;
+              s.ny += (eatPos.ny - s.ny) * eatAlignAlpha;
+              s.facing = eatPos.facing;
+
               if (s.bowlAmount <= 0.01) {
                 s.bowlAmount = 0;
                 flushPendingBowlMeal();
@@ -4661,12 +4845,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               } else if (
                 gState === 'PLAYING' &&
                 s.bowlAmount > 0.05 &&
-                s.hunger < 99 &&
+                (s.hunger < 99.9 ||
+                  s.mealHungerRemaining > 0 ||
+                  s.mealHappyRemaining > 0 ||
+                  s.mealEnergyRemaining > 0) &&
                 s.idleDecisionTimer > -50 &&
                 !s.walkingToBath &&
                 !s.isBathing
               ) {
-                const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+                const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy, s.nx);
                 s.idleZoomies = false;
                 s.behavior = 'WALKING';
                 s.targetNx = eatPos.nx;
@@ -4679,6 +4866,15 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
               if (s.behavior === 'WALKING' || s.behavior === 'PLAYING') {
                 const isChasingBall = s.behavior === 'PLAYING' && s.toy.active;
+                const isWalkingToBowl =
+                  !isChasingBall &&
+                  !s.walkingToBath &&
+                  s.idleDecisionTimer > -50 &&
+                  s.bowlAmount > 0.05 &&
+                  (s.hunger < 99.9 ||
+                    s.mealHungerRemaining > 0 ||
+                    s.mealHappyRemaining > 0 ||
+                    s.mealEnergyRemaining > 0);
                 const isLateNight = gState === 'PLAYING' && isLateNightDrowsyHour(s.gameHour);
                 if (isLateNight && s.idleZoomies) {
                   s.idleZoomies = false;
@@ -4687,7 +4883,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                   }
                 }
                 const isRunning = !isLateNight && (isChasingBall || s.idleZoomies);
-                const catchDist = isChasingBall && s.activeToy === 'toy_mouse' ? 0.056 : 0.032;
+                const catchDist =
+                  isChasingBall && s.activeToy === 'toy_mouse'
+                    ? 0.056
+                    : isWalkingToBowl
+                    ? 0.012
+                    : 0.032;
                 s.isSprinting = isRunning && (dist > 0.05 || s.idleZoomies);
 
                 // Sakit, sangat ngantuk (01:00–06:00), atau energi <= 20 -> berjalan lebih lambat
@@ -4807,15 +5008,24 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                     s.facing = 1;
                     s.idleDecisionTimer = 3.0;
                   } else {
-                    const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+                    const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy, s.nx);
                     if (
                       s.bowlAmount > 0.05 &&
-                      Math.hypot(s.nx - eatPos.nx, s.ny - eatPos.ny) < 0.035 &&
-                      s.hunger < 99
+                      (s.hunger < 99.9 ||
+                        s.mealHungerRemaining > 0 ||
+                        s.mealHappyRemaining > 0 ||
+                        s.mealEnergyRemaining > 0)
                     ) {
-                      s.behavior = 'EATING';
-                      s.facing = eatPos.facing;
-                      s.eatTickTimer = 0.1;
+                      if (Math.hypot(s.nx - eatPos.nx, s.ny - eatPos.ny) <= 0.02) {
+                        s.nx = eatPos.nx;
+                        s.ny = eatPos.ny;
+                        s.behavior = 'EATING';
+                        s.facing = eatPos.facing;
+                        s.eatTickTimer = 0.1;
+                      } else {
+                        s.targetNx = eatPos.nx;
+                        s.targetNy = eatPos.ny;
+                      }
                     } else {
                       s.idleZoomies = false;
                       s.behavior = 'IDLE';
@@ -4884,7 +5094,22 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
             }
 
-            if (s.behavior !== 'SLEEPING' && !s.isDraggingCat && !s.isDroppingFromDrag) {
+            const isWalkingToRoomTarget =
+              s.behavior === 'WALKING' &&
+              (s.walkingToBath ||
+                s.idleDecisionTimer < -50 ||
+                (s.bowlAmount > 0.05 &&
+                  (s.hunger < 99.9 ||
+                    s.mealHungerRemaining > 0 ||
+                    s.mealHappyRemaining > 0 ||
+                    s.mealEnergyRemaining > 0)));
+            if (
+              s.behavior !== 'SLEEPING' &&
+              s.behavior !== 'EATING' &&
+              !isWalkingToRoomTarget &&
+              !s.isDraggingCat &&
+              !s.isDroppingFromDrag
+            ) {
               s.nx = clamp(s.nx, FLOOR_BOUNDS.minX, FLOOR_BOUNDS.maxX);
               s.ny = clamp(s.ny, FLOOR_BOUNDS.minY, FLOOR_BOUNDS.maxY);
             }
@@ -5067,26 +5292,34 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           );
           if (s.isDraggingCat) {
             const scruff = getCatScruffScreenPos(rt);
-            const gapY = scruff.y - s.catDragPtrY;
-            if (gapY > 18) {
-              const endY = scruff.y - 6;
-              const ctrlX = (s.catDragPtrX + scruff.x) * 0.5 - s.catSwingAngle * 14;
-              const ctrlY = (s.catDragPtrY + endY) * 0.5;
+            const dx = scruff.x - s.catDragPtrX;
+            const dy = scruff.y - s.catDragPtrY;
+            const ropeDist = Math.hypot(dx, dy);
+            if (ropeDist > 8) {
+              const ux = dx / ropeDist;
+              const uy = dy / ropeDist;
+              const startX = s.catDragPtrX + ux * 4;
+              const startY = s.catDragPtrY + uy * 4;
+              const endX = scruff.x - ux * 2;
+              const endY = scruff.y - uy * 2;
+              const bow = clamp(s.catRopeVel * 1.4, -7, 7);
+              const ctrlX = (startX + endX) * 0.5 + uy * bow;
+              const ctrlY = (startY + endY) * 0.5 - ux * bow;
               ctx.save();
               ctx.lineCap = 'round';
               ctx.strokeStyle = 'rgba(42, 28, 16, 0.22)';
               ctx.lineWidth = 3.2;
               ctx.setLineDash([4, 6]);
               ctx.beginPath();
-              ctx.moveTo(s.catDragPtrX, s.catDragPtrY + 8);
-              ctx.quadraticCurveTo(ctrlX, ctrlY, scruff.x, endY);
+              ctx.moveTo(startX, startY);
+              ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY);
               ctx.stroke();
 
               ctx.strokeStyle = 'rgba(255, 248, 232, 0.7)';
               ctx.lineWidth = 1.6;
               ctx.beginPath();
-              ctx.moveTo(s.catDragPtrX, s.catDragPtrY + 8);
-              ctx.quadraticCurveTo(ctrlX, ctrlY, scruff.x, endY);
+              ctx.moveTo(startX, startY);
+              ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY);
               ctx.stroke();
 
               ctx.setLineDash([]);
@@ -5210,23 +5443,20 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       const headTopX = baseScr.x;
       const headTopY = baseScr.y - jumpPx - 125 * catDrawScale;
       const dragCursorGapPx = getCatDragCursorGapPx(window.innerHeight || 720, isTouch);
-      const bounds = getRoomPlacementBounds();
       s.catDragIsTouch = isTouch;
       s.isDraggingCat = true;
       s.isDroppingFromDrag = false;
       s.catDragTime = 0;
       s.catSwingAngle = 0;
       s.catSwingVel = 0;
-      s.catDragSmoothVx = 0;
+      s.catRopeAngle = 0;
+      s.catRopeVel = 0;
       s.catDragPtrX = px;
       s.catDragPtrY = py;
       s.catDragOffsetX = clamp(px - headTopX, -32, 32);
       s.catDragOffsetY = clamp(py + dragCursorGapPx - headTopY, -180, 180);
-      s.catDragPrevPtrNx = clamp(
-        (px - s.catDragOffsetX - rt.offsetX) / rt.drawW,
-        Math.max(0.03, bounds.minX),
-        Math.min(0.97, bounds.maxX)
-      );
+      s.catDragPrevAnchorX = px - s.catDragOffsetX;
+      s.catDragSmoothAnchorVx = 0;
       s.behavior = 'IDLE';
       s.idleZoomies = false;
       s.walkingToBath = false;
@@ -5375,9 +5605,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         }
         if (isClick && s.brushHintCooldown <= 0) {
           s.brushHintCooldown = 1.0;
+          const t = getTranslations(languageRef.current);
           const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.05, rt);
           spawnParticle('text', tubScr.x, tubScr.y - 34, {
-            label: 'Sedang mandi di bak!',
+            label: t.stage.toasts.bathingNow,
             color: '#BAE6FD',
             size: 13,
             vy: -24,
@@ -5399,8 +5630,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             if (isClick || s.brushHintCooldown <= 0) {
               s.brushHintCooldown = 1.2;
               soundEngine.playBounce();
+              const t = getTranslations(languageRef.current);
               spawnParticle('text', catScr.x, catScr.y - 34, {
-                label: 'Mandi & sikat dikunci saat kucing tidur!',
+                label: t.stage.toasts.brushLockedSleep,
                 color: '#FCA5A5',
                 size: 13.5,
                 vy: -26,
@@ -5414,10 +5646,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           if (isClick) {
             s.brushScrubAccum = 0;
             soundEngine.unlock();
+            const t = getTranslations(languageRef.current);
             if (s.cleanliness >= 99.5) {
               s.cleanliness = 100;
               spawnParticle('text', catScr.x, catScr.y - 34, {
-                label: 'Sudah Bersih 100%!',
+                label: t.stage.toasts.cleanFull,
                 color: '#A7F3D0',
                 size: 13,
                 vy: -26,
@@ -5429,7 +5662,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               s.brushHintCooldown = 0.9;
               soundEngine.playBrush();
               spawnParticle('text', catScr.x, catScr.y - 34, {
-                label: 'Gosok-gosok tubuh kucing (+10 Bersih)',
+                label: t.stage.toasts.brushHint,
                 color: '#BAE6FD',
                 size: 13,
                 vy: -24,
@@ -5446,8 +5679,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.brushStrokeCooldown = 0.7;
                 s.cleanliness = 100;
                 soundEngine.playBrush();
+                const t = getTranslations(languageRef.current);
                 spawnParticle('text', catScr.x, catScr.y - 34, {
-                  label: 'Sudah Bersih 100%!',
+                  label: t.stage.toasts.cleanFull,
                   color: '#A7F3D0',
                   size: 13,
                   vy: -26,
@@ -5501,8 +5735,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               }
 
               const reachedFull = s.cleanliness >= 100;
+              const t = getTranslations(languageRef.current);
               spawnParticle('text', catScr.x, catScr.y - 36, {
-                label: reachedFull ? 'Bersih 100%! Wangi ✨' : `+${BRUSH_POINTS_PER_STROKE} Bersih`,
+                label: reachedFull
+                  ? t.stage.toasts.brushFullWangi
+                  : t.stage.toasts.brushGain(BRUSH_POINTS_PER_STROKE),
                 color: reachedFull ? '#A7F3D0' : '#93C5FD',
                 size: 14,
                 vy: -28,
@@ -5525,8 +5762,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             if (isClick && s.petActionCooldown <= 0) {
               s.petActionCooldown = 1.2;
               soundEngine.playBounce();
+              const t = getTranslations(languageRef.current);
               spawnParticle('text', catScr.x, catScr.y - 34, {
-                label: 'Zzz... Sedang tidur',
+                label: t.stage.toasts.sleepingZzz,
                 color: '#BFDBFE',
                 size: 13.5,
                 vy: -24,
@@ -5597,9 +5835,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               s.idleZoomies = false;
               s.behavior = 'WALKING';
               soundEngine.playMeow(0.84);
+              const t = getTranslations(languageRef.current);
               const catPos = roomToScreen(s.nx, s.ny - 0.06, rt);
               spawnParticle('text', catPos.x, catPos.y - 34, {
-                label: 'Mengantuk berat (01:00–06:00)! Tidak mau berlari',
+                label: t.stage.toasts.lateNightNoZoom,
                 color: '#FDE68A',
                 size: 13,
                 vy: -24,
@@ -5835,7 +6074,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
               );
               s.bowlNx = nextBowl.nx;
               s.bowlNy = nextBowl.ny;
-              const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy);
+              const eatPos = getBowlEatPos(s.bowlNx, s.bowlNy, s.nx);
               if (s.behavior === 'EATING') {
                 s.nx = eatPos.nx;
                 s.ny = eatPos.ny;

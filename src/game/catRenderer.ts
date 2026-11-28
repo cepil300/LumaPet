@@ -1103,11 +1103,15 @@ export function drawCat(
         stage === 'baby' ? 0.68 : stage === 'child' ? 0.74 : stage === 'teen' ? 0.86 : 1;
       const shadowScale = Math.max(0.28, 0.78 - cat.z * 1.1) * shadowSizeMult;
 
+      const swing = Math.max(-1.25, Math.min(1.25, cat.dragSwing ?? 0));
+      const bodyRot = swing * 0.34;
+      const shadowOffsetX = -Math.sin(bodyRot) * 105 * s * stageScale;
+
       ctx.save();
       ctx.fillStyle = 'rgba(35, 27, 20, 0.2)';
       ctx.beginPath();
       ctx.ellipse(
-        screenPos.x,
+        screenPos.x + shadowOffsetX,
         screenPos.y - 2 * s,
         52 * s * shadowScale,
         14 * s * shadowScale,
@@ -1120,7 +1124,6 @@ export function drawCat(
       ctx.translate(screenPos.x, screenPos.y - jumpPx);
       ctx.scale(s * stageScale, s * stageScale);
 
-      const swing = Math.max(-1.25, Math.min(1.25, cat.dragSwing ?? 0));
       const frameCol = pickDragSpriteFrame(swing, cat.dragTime ?? 0, cat.time);
       const cols = 8;
       const cellW = dragSheet.naturalWidth / cols;
@@ -1129,7 +1132,7 @@ export function drawCat(
       const drawH = drawW * (cellH / cellW);
 
       ctx.translate(0, CAT_DRAG_SCRUFF_LOCAL_Y);
-      ctx.rotate(swing * 0.11);
+      ctx.rotate(bodyRot);
 
       ctx.imageSmoothingEnabled = true;
       if (cat.isSick) {

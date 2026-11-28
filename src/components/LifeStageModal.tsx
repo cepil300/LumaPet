@@ -1,8 +1,9 @@
 import React from 'react';
 import { Sparkles, X } from 'lucide-react';
+import { getTranslations } from '../i18n/translations';
 import {
-  ADULT_BRANCHES,
   AdultEvolutionBranch,
+  AppLanguage,
   CatHudSnapshot,
   LIFE_STAGES,
   LifeStage,
@@ -12,17 +13,24 @@ import { CatEarsHeaderPlaque, CatPortraitMedallion } from './WoodPanelChrome';
 
 interface LifeStageModalProps {
   open: boolean;
+  language?: AppLanguage;
   hud: CatHudSnapshot;
   onClose: () => void;
 }
 
 const STAGE_ORDER: LifeStage[] = ['baby', 'child', 'teen', 'adult', 'senior'];
 
-export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClose }) => {
+export const LifeStageModal: React.FC<LifeStageModalProps> = ({
+  open,
+  language = 'id',
+  hud,
+  onClose,
+}) => {
   if (!open) return null;
 
+  const t = getTranslations(language);
   const currentIdx = STAGE_ORDER.indexOf(hud.lifeStage);
-  const currentMeta = LIFE_STAGES[hud.lifeStage];
+  const currentMeta = t.catalog.lifeStages[hud.lifeStage];
   const pct =
     hud.stageDurationSec > 0
       ? Math.min(100, Math.round((hud.stageElapsedSec / hud.stageDurationSec) * 100))
@@ -32,15 +40,15 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
     const remainSec = Math.max(0, hud.stageDurationSec - hud.stageElapsedSec);
     if (hud.lifeStage === 'baby') {
       const mins = Math.ceil(remainSec / 60);
-      return `Sisa ${mins}m · Jam ${Math.floor(hud.gameHours)}/73`;
+      return t.lifestage.remainingBaby(mins, Math.floor(hud.gameHours));
     }
     const totalHours = Math.ceil(remainSec / 3600);
     if (totalHours >= 48) {
       const days = Math.floor(totalHours / 24);
       const hrs = totalHours % 24;
-      return `Sisa ${days}h ${hrs}j`;
+      return t.lifestage.remainingDaysHours(days, hrs);
     }
-    return `Sisa ${totalHours}j`;
+    return t.lifestage.remainingHours(totalHours);
   };
 
   return (
@@ -53,14 +61,14 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
         onClick={(e) => e.stopPropagation()}
       >
         <div className="absolute -top-6 sm:-top-7 short:-top-4 left-1/2 -translate-x-1/2 z-20">
-          <CatEarsHeaderPlaque title="Tahap Pertumbuhan" />
+          <CatEarsHeaderPlaque title={t.lifestage.title} />
         </div>
 
         <button
           type="button"
           onClick={onClose}
           className="absolute -top-3 -right-3 short:-top-2 short:-right-2 z-30 w-10 h-10 short:w-8 short:h-8 rounded-full bg-gradient-to-b from-[#F47B6A] to-[#D64B3B] border-[2.5px] border-[#5E2F12] shadow-[0_3px_0_#5E2F12] text-white flex items-center justify-center hover:brightness-105 active:translate-y-0.5 cursor-pointer"
-          aria-label="Tutup"
+          aria-label={t.common.close}
         >
           <X className="w-5 h-5 short:w-4 short:h-4 stroke-[3]" />
         </button>
@@ -83,16 +91,16 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-display font-black text-base short:text-sm text-[#4A2510]">
-                      {hud.name} · Fase {currentMeta.label}
+                      {t.lifestage.phaseTitle(hud.name, currentMeta.label)}
                     </span>
                     {hud.lifeStage === 'adult' && (
                       <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] border border-[#D97706] text-[11px] short:text-[9.5px] font-extrabold text-[#92400E]">
-                        {ADULT_BRANCHES[hud.adultBranch].label}
+                        {t.catalog.adultBranches[hud.adultBranch].label}
                       </span>
                     )}
                   </div>
                   <p className="text-[11px] short:text-[10px] font-bold text-[#8C4A1F] mt-0.5">
-                    {currentMeta.calendarLabel} · Durasi {currentMeta.realDurationLabel}
+                    {t.lifestage.durationPrefix(currentMeta.calendarLabel, currentMeta.realDurationLabel)}
                   </p>
                   <p className="text-xs short:text-[10.5px] font-semibold text-[#6E4423] mt-0.5">
                     {currentMeta.decayNote}
@@ -104,8 +112,8 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                 <div className="flex items-center justify-between text-[11px] short:text-[10px] font-extrabold text-[#5A2D12] mb-1">
                   <span>
                     {hud.lifeStage === 'senior'
-                      ? 'Usia Senior (H.12–18)'
-                      : 'Menuju Fase Berikutnya'}
+                      ? t.lifestage.seniorAgeLabel
+                      : t.lifestage.toNextStage}
                   </span>
                   <span className="tabular-nums">{pct}%</span>
                 </div>
@@ -118,7 +126,7 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                 <p className="text-[11px] short:text-[9.5px] font-bold text-[#7A4928] mt-1 flex items-center justify-between gap-2">
                   <span className="tabular-nums">{formatRemaining()}</span>
                   <span className="font-black text-[#4A2510] tabular-nums">
-                    Mistake: {hud.careMistakes}x
+                    {t.lifestage.mistakesLabel(hud.careMistakes)}
                   </span>
                 </p>
               </div>
@@ -128,6 +136,7 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
             <div className="grid grid-cols-2 sm:grid-cols-5 short:grid-cols-5 gap-2.5 short:gap-1.5 mb-3.5 short:mb-2">
               {STAGE_ORDER.map((stageKey, idx) => {
                 const meta = LIFE_STAGES[stageKey];
+                const metaLoc = t.catalog.lifeStages[stageKey];
                 const isCurrent = hud.lifeStage === stageKey;
                 const isUnlocked = idx <= currentIdx;
                 return (
@@ -160,7 +169,7 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                       ) : (
                         <img
                           src={meta.imgSrc}
-                          alt={meta.label}
+                          alt={metaLoc.label}
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover"
                           draggable={false}
@@ -168,17 +177,17 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
                       )}
                     </div>
                     <span className="font-display font-extrabold text-xs short:text-[10.5px] text-[#4A2510] leading-tight">
-                      {meta.shortLabel}
+                      {metaLoc.shortLabel}
                     </span>
                     <span className="text-[10px] short:text-[8.5px] font-bold text-[#7A4928] leading-tight mt-0.5">
-                      {meta.realDurationLabel}
+                      {metaLoc.realDurationLabel}
                     </span>
                     <span className="text-[9.5px] short:text-[8px] text-[#8C582E] leading-tight">
-                      {meta.calendarLabel}
+                      {metaLoc.calendarLabel}
                     </span>
                     {isCurrent && (
                       <span className="mt-1 px-1.5 py-0.5 rounded-full bg-[#2D6A4F] text-white text-[9px] font-extrabold">
-                        Sekarang
+                        {t.lifestage.nowBadge}
                       </span>
                     )}
                   </div>
@@ -190,11 +199,11 @@ export const LifeStageModal: React.FC<LifeStageModalProps> = ({ open, hud, onClo
             <div className="rounded-xl bg-[#FFFDF8] border-2 border-[#8C582E]/35 p-2.5 short:p-2">
               <p className="font-display font-extrabold text-xs short:text-[11px] text-[#5A2D12] mb-1.5 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-[#D97706]" />
-                <span>Percabangan Evolusi Dewasa (berdasarkan Care Mistakes di fase Anak & Remaja)</span>
+                <span>{t.lifestage.branchGuideTitle}</span>
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 short:grid-cols-3 gap-2 short:gap-1.5">
                 {(['prima', 'mandiri', 'sensitif'] as AdultEvolutionBranch[]).map((bKey) => {
-                  const b = ADULT_BRANCHES[bKey];
+                  const b = t.catalog.adultBranches[bKey];
                   const active = hud.lifeStage === 'adult' && hud.adultBranch === bKey;
                   return (
                     <div

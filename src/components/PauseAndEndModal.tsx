@@ -6,11 +6,11 @@ import {
   Play,
   Settings,
 } from 'lucide-react';
+import { getLanguageMeta, getTranslations } from '../i18n/translations';
 import {
   CatHudSnapshot,
   GameSettings,
   GameState,
-  LIFE_STAGES,
 } from '../types/game';
 import {
   GhostCatSvg,
@@ -54,9 +54,11 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
 
   if (gameState !== 'PAUSED' && gameState !== 'GAME_OVER') return null;
 
+  const t = getTranslations(settings.language);
+  const langMeta = getLanguageMeta(settings.language);
   const isGameOver = gameState === 'GAME_OVER';
   const savedTimeText = lastSavedAt
-    ? new Date(lastSavedAt).toLocaleTimeString('id-ID', {
+    ? new Date(lastSavedAt).toLocaleTimeString(langMeta.bcp47, {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
@@ -91,10 +93,10 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
             <CatEarsHeaderPlaque
               title={
                 isGameOver
-                  ? `${hud.name} Berpulang`
+                  ? t.pause.diedTitle(hud.name)
                   : showSettings
-                  ? 'Pengaturan'
-                  : 'Menu Jeda'
+                  ? t.pause.settingsTitle
+                  : t.pause.pausedTitle
               }
             />
           </div>
@@ -114,8 +116,8 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                   {isGameOver && (
                     <p className="text-center text-sm short:text-xs font-semibold text-[#6B4A35] mb-3 short:mb-2">
                       {hud.deathReason === 'old_age'
-                        ? `${hud.name} telah menua dengan penuh kasih dan berpulang dengan tenang setelah menemanimu hingga Hari ke-${hud.day}.`
-                        : `Arwah ${hud.name} terbang tenang ke negeri awan karena sakitnya tidak sempat diobati.`}
+                        ? t.pause.diedOldAge(hud.name, hud.day)
+                        : t.pause.diedSickness(hud.name)}
                     </p>
                   )}
 
@@ -123,16 +125,16 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                   <div className="parchment-banner rounded-xl short:rounded-lg border-2 border-[#8C582E] px-3 py-3 sm:px-5 sm:py-3.5 short:px-2.5 short:py-2 mb-3 short:mb-2 grid grid-cols-3 divide-x divide-[#8C582E]/30 text-center">
                     <div className="px-1">
                       <p className="text-xs short:text-[10px] font-bold text-[#6E4423]">
-                        Lama Merawat
+                        {t.pause.careDuration}
                       </p>
                       <p className="font-display font-black text-lg sm:text-xl short:text-sm text-[#4A2510] tabular-nums mt-0.5">
-                        {hud.day} Hari · {LIFE_STAGES[hud.lifeStage].shortLabel}
+                        {hud.day} {t.common.days} · {t.catalog.lifeStages[hud.lifeStage].shortLabel}
                       </p>
                     </div>
                     <div className="px-1">
                       <p className="text-xs short:text-[10px] font-bold text-[#6E4423] inline-flex items-center justify-center gap-1">
                         <ShopShirtTabIcon className="w-4 h-4 short:w-3 short:h-3 shrink-0" />
-                        <span>Ikatan</span>
+                        <span>{t.pause.bond}</span>
                       </p>
                       <p className="font-display font-black text-lg sm:text-xl short:text-sm text-[#4A2510] tabular-nums mt-0.5">
                         Lv. {hud.level}
@@ -140,7 +142,7 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                     </div>
                     <div className="px-1">
                       <p className="text-xs short:text-[10px] font-bold text-[#6E4423]">
-                        Tangkapan Bola
+                        {t.pause.ballCatches}
                       </p>
                       <p className="font-display font-black text-lg sm:text-xl short:text-sm text-[#4A2510] tabular-nums mt-0.5">
                         {hud.totalCatches}x
@@ -159,11 +161,11 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                         <span>
                           {autoSaveStatus === 'saving'
                             ? cloudLinked
-                              ? 'Menyimpan ke Cloud...'
-                              : 'Menyimpan progres otomatis...'
+                              ? t.pause.savingCloud
+                              : t.pause.savingAuto
                             : cloudLinked
-                            ? 'Cloud Save Aktif · Tersimpan otomatis'
-                            : 'Auto-Save Aktif · Tersimpan otomatis'}
+                            ? t.pause.cloudSaveActive
+                            : t.pause.autoSaveActive}
                         </span>
                       </span>
                       {savedTimeText && (
@@ -183,7 +185,7 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                         className="sm:col-span-2 short:col-span-2 w-full px-4 py-3 short:px-3 short:py-2 min-h-[52px] short:min-h-[42px] rounded-xl bg-gradient-to-b from-[#458E53] to-[#2B6639] border-[2.5px] short:border-2 border-[#1E4627] shadow-[inset_0_2px_0_#78C785,0_4px_0_#1E4627] short:shadow-[inset_0_1px_0_#78C785,0_2.5px_0_#1E4627] text-white font-display font-extrabold text-base short:text-sm hover:brightness-105 active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <Play className="w-5 h-5 short:w-4 short:h-4 fill-white shrink-0" />
-                        <span>Lanjutkan</span>
+                        <span>{t.pause.resume}</span>
                       </button>
 
                       <button
@@ -192,7 +194,7 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                         className="w-full px-4 py-3 short:px-3 short:py-2 min-h-[52px] short:min-h-[42px] rounded-xl bg-gradient-to-b from-[#F2D59B] to-[#D4A762] border-[2.5px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFF3D9,0_4px_0_#6E3B1B] short:shadow-[inset_0_1px_0_#FFF3D9,0_2.5px_0_#6E3B1B] text-[#5A2D12] font-display font-extrabold text-base short:text-sm hover:brightness-105 active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <Settings className="w-5 h-5 short:w-4 short:h-4 text-[#6E3B1B] shrink-0" />
-                        <span>Pengaturan</span>
+                        <span>{t.pause.settingsTitle}</span>
                       </button>
 
                       <button
@@ -204,7 +206,7 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                         className="w-full px-4 py-3 short:px-3 short:py-2 min-h-[52px] short:min-h-[42px] rounded-xl bg-gradient-to-b from-[#F47B6A] to-[#D64B3B] border-[2.5px] short:border-2 border-[#6E241C] shadow-[inset_0_2px_0_#FCA5A5,0_4px_0_#6E241C] short:shadow-[inset_0_1px_0_#FCA5A5,0_2.5px_0_#6E241C] text-white font-display font-extrabold text-base short:text-sm hover:brightness-105 active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <LogOut className="w-5 h-5 short:w-4 short:h-4 shrink-0" />
-                        <span>Keluar Game</span>
+                        <span>{t.pause.quitGame}</span>
                       </button>
                     </div>
                   ) : (
@@ -214,14 +216,14 @@ export const PauseAndEndModal: React.FC<PauseAndEndModalProps> = ({
                         onClick={onRestartSameCat}
                         className="w-full px-4 py-3 short:px-3 short:py-2 min-h-[52px] short:min-h-[42px] rounded-xl bg-gradient-to-b from-[#F59E0B] to-[#D97706] border-[2.5px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FDE68A,0_4px_0_#6E3B1B] text-white font-display font-extrabold text-base short:text-sm hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer"
                       >
-                        Main Lagi
+                        {t.pause.playAgain}
                       </button>
                       <button
                         type="button"
                         onClick={onReturnToTitle}
                         className="w-full px-4 py-3 short:px-3 short:py-2 min-h-[52px] short:min-h-[42px] rounded-xl bg-gradient-to-b from-[#FDF0C6] to-[#E6C77E] border-[2.5px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFDF5,0_4px_0_#6E3B1B] text-[#5A2D12] font-display font-extrabold text-base short:text-sm hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer"
                       >
-                        Menu Utama
+                        {t.pause.mainMenu}
                       </button>
                     </div>
                   )}

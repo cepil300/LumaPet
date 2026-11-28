@@ -405,12 +405,15 @@ export type CatAccessoryId =
   | Exclude<CatGlassesId, 'none'>
   | Exclude<CatScarfId, 'default'>;
 
+export type AppLanguage = 'id' | 'en' | 'th' | 'vi' | 'ms';
+
 export interface GameSettings {
   muted: boolean;
   sfxMuted: boolean;
   musicMuted: boolean;
   volume: number;
   hungerSpeed: HungerSpeed;
+  language: AppLanguage;
 }
 
 export interface BreedProfile {

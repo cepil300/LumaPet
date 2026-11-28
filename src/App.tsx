@@ -23,7 +23,9 @@ import { ShopDrawer } from './components/ShopDrawer';
 import { CloudSyncStatus, TitleScreen } from './components/TitleScreen';
 import { UiEditorTool } from './components/UiEditorTool';
 import { CatStageCanvas, CatStageHandle } from './game/CatStageCanvas';
+import { getTranslations, normalizeLanguage } from './i18n/translations';
 import {
+  AppLanguage,
   BathItemId,
   CatAccessoryId,
   CatBathtubId,
@@ -52,6 +54,7 @@ import {
   clearLowHungerNotificationSchedule,
   getCareNotificationPermission,
   requestCareNotificationPermission,
+  setCareNotificationLanguage,
 } from './utils/catCareSystem';
 import { deleteCloudSave, loadCloudSave, saveCloudSave } from './utils/cloudSave';
 import {
@@ -143,6 +146,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   musicMuted: false,
   volume: 100,
   hungerSpeed: 'normal',
+  language: 'id',
 };
 
 function readSettings(): GameSettings {
@@ -165,6 +169,7 @@ function readSettings(): GameSettings {
       musicMuted,
       volume,
       hungerSpeed: DEFAULT_SETTINGS.hungerSpeed,
+      language: normalizeLanguage(parsed.language),
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -178,7 +183,8 @@ function checkTouchPortrait(): boolean {
   return (isCoarse || isAndroidUa) && window.innerHeight > window.innerWidth;
 }
 
-function formatCloudErrorMessage(err: unknown): string {
+function formatCloudErrorMessage(err: unknown, language: AppLanguage): string {
+  const t = getTranslations(language);
   if (err instanceof FirebaseError) {
     if (
       err.code === 'auth/popup-closed-by-user' ||
@@ -187,14 +193,14 @@ function formatCloudErrorMessage(err: unknown): string {
       return '';
     }
     if (err.code === 'auth/popup-blocked') {
-      return 'Popup login Google diblokir browser. Izinkan popup lalu coba lagi.';
+      return t.app.cloudErrors.popupBlocked;
     }
   }
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes('Quota exceeded')) {
-    return 'Kuota harian layanan Cloud Save telah tercapai dan akan direset besok.';
+    return t.app.cloudErrors.quota;
   }
-  return 'Gagal menyinkronkan Cloud Save. Periksa koneksi internetmu.';
+  return t.app.cloudErrors.generic;
 }
 
 export default function App() {
@@ -219,8 +225,10 @@ export default function App() {
   const [settings, setSettings] = useState<GameSettings>(() => {
     const s = readSettings();
     soundEngine.applySettings(s);
+    setCareNotificationLanguage(s.language);
     return s;
   });
+  const t = getTranslations(settings.language);
   const [hud, setHud] = useState<CatHudSnapshot>(INITIAL_HUD);
   const [existingSave, setExistingSave] = useState<SaveData | null>(() => readSavedCat());
   const [authReady, setAuthReady] = useState(false);
@@ -229,6 +237,7 @@ export default function App() {
   const [cloudError, setCloudError] = useState<string | null>(null);
   const googleUserRef = useRef<User | null>(null);
   const gameStateRef = useRef<GameState>(gameState);
+  const languageRef = useRef<AppLanguage>(settings.language);
   const cloudDocExistsRef = useRef<boolean | undefined>(undefined);
   const lastCloudSyncAtRef = useRef<number>(0);
   const linkingInFlightRef = useRef<boolean>(false);
@@ -236,6 +245,12 @@ export default function App() {
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  useEffect(() => {
+    languageRef.current = settings.language;
+    setCareNotificationLanguage(settings.language);
+    document.title = t.app.docTitle;
+  }, [settings.language, t.app.docTitle]);
 
   const syncSaveToCloud = useCallback(async (uid: string, data: SaveData) => {
     setCloudSyncStatus('syncing');
@@ -247,7 +262,7 @@ export default function App() {
       setCloudError(null);
     } catch (err) {
       setCloudSyncStatus('error');
-      const msg = formatCloudErrorMessage(err);
+      const msg = formatCloudErrorMessage(err, languageRef.current);
       if (msg) setCloudError(msg);
     }
   }, []);
@@ -287,7 +302,7 @@ export default function App() {
         })
         .catch((err) => {
           setCloudSyncStatus('error');
-          const msg = formatCloudErrorMessage(err);
+          const msg = formatCloudErrorMessage(err, languageRef.current);
           if (msg) setCloudError(msg);
           setAuthReady(true);
         });
@@ -326,7 +341,7 @@ export default function App() {
         setCloudSyncStatus('synced');
       }
     } catch (err) {
-      const msg = formatCloudErrorMessage(err);
+      const msg = formatCloudErrorMessage(err, languageRef.current);
       if (msg) {
         setCloudError(msg);
         setCloudSyncStatus('error');
@@ -348,7 +363,7 @@ export default function App() {
       setGoogleUser(null);
       setCloudSyncStatus('idle');
     } catch (err) {
-      const msg = formatCloudErrorMessage(err);
+      const msg = formatCloudErrorMessage(err, languageRef.current);
       if (msg) setCloudError(msg);
     }
   }, []);
@@ -372,7 +387,7 @@ export default function App() {
       setCloudSyncStatus('synced');
     } catch (err) {
       setCloudSyncStatus('error');
-      const msg = formatCloudErrorMessage(err);
+      const msg = formatCloudErrorMessage(err, languageRef.current);
       if (msg) setCloudError(msg);
     }
   }, []);
@@ -918,6 +933,7 @@ export default function App() {
         toolMode={toolMode}
         previewBreed={selectedBreed}
         hungerSpeed={settings.hungerSpeed}
+        language={settings.language}
         devTimeScale={devTimeScale}
         onHudUpdate={setHud}
         onGameOver={handleGameOver}
@@ -954,6 +970,7 @@ export default function App() {
             hud={hud}
             toolMode={toolMode}
             shopOpen={shopOpen}
+            language={settings.language}
             onSelectTool={setToolMode}
             onFeedItem={handleFeedItem}
             onUseBathItem={handleUseBathItem}
@@ -973,6 +990,7 @@ export default function App() {
           <ShopDrawer
             open={shopOpen}
             hud={hud}
+            language={settings.language}
             onClose={() => setShopOpen(false)}
             onFeedItem={handleFeedItem}
             onBuyFoodItem={handleBuyFoodItem}
@@ -988,12 +1006,14 @@ export default function App() {
           {SHOW_LIFE_STAGE_MODAL && (
             <LifeStageModal
               open={lifeStageOpen}
+              language={settings.language}
               hud={hud}
               onClose={() => setLifeStageOpen(false)}
             />
           )}
           <MiniGameModal
             open={miniGameOpen}
+            language={settings.language}
             catName={hud.name}
             isRaining={hud.weather === 'hujan'}
             happinessFull={hud.happiness >= 100}
@@ -1034,7 +1054,7 @@ export default function App() {
       )}
 
       {!openingDone && !appClosed && (
-        <OpeningSplash onFinish={() => setOpeningDone(true)} />
+        <OpeningSplash language={settings.language} onFinish={() => setOpeningDone(true)} />
       )}
 
       {appClosed && (
@@ -1046,17 +1066,15 @@ export default function App() {
             draggable={false}
           />
           <div>
-            <h2 className="font-display text-xl font-extrabold">Aplikasi Telah Ditutup</h2>
-            <p className="text-sm text-[#D1DCD6] mt-1">
-              Terima kasih sudah bermain LumaPet. Kamu dapat menutup halaman ini.
-            </p>
+            <h2 className="font-display text-xl font-extrabold">{t.app.closedTitle}</h2>
+            <p className="text-sm text-[#D1DCD6] mt-1">{t.app.closedDesc}</p>
           </div>
           <button
             type="button"
             onClick={() => setAppClosed(false)}
             className="px-5 py-2.5 rounded-xl bg-[#2D6A4F] border-2 border-[#74C69D]/50 text-white font-display font-bold text-sm hover:brightness-110 cursor-pointer"
           >
-            Buka Kembali
+            {t.app.reopen}
           </button>
         </div>
       )}
@@ -1065,10 +1083,8 @@ export default function App() {
         <div className="fixed inset-0 z-[120] bg-[#16201C]/98 text-[#FFFDF7] flex flex-col items-center justify-center p-6 text-center gap-4">
           <RotateCw className="w-12 h-12 text-[#FBBF24] animate-spin" style={{ animationDuration: '4s' }} />
           <div>
-            <h2 className="font-display text-xl font-extrabold">Mode Lanskap Diperlukan</h2>
-            <p className="text-sm text-[#D1DCD6] mt-1 max-w-xs">
-              Putar perangkat Anda ke posisi miring (Landscape) untuk memainkan LumaPet.
-            </p>
+            <h2 className="font-display text-xl font-extrabold">{t.app.portraitTitle}</h2>
+            <p className="text-sm text-[#D1DCD6] mt-1 max-w-xs">{t.app.portraitDesc}</p>
           </div>
         </div>
       )}

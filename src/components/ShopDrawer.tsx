@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Check, X } from 'lucide-react';
+import { getTranslations } from '../i18n/translations';
 import {
+  AppLanguage,
   BATH_ITEMS,
   BathItemId,
   CAT_ACCESSORIES,
@@ -36,6 +38,7 @@ import { CatEarsHeaderPlaque } from './WoodPanelChrome';
 interface ShopDrawerProps {
   open: boolean;
   hud: CatHudSnapshot;
+  language?: AppLanguage;
   onClose: () => void;
   onFeedItem: (foodId: FoodItemId) => void;
   onBuyFoodItem: (foodId: Exclude<FoodItemId, 'snack'>, useImmediately?: boolean) => void;
@@ -94,6 +97,7 @@ function formatCooldownMMSS(sec: number): string {
 export const ShopDrawer: React.FC<ShopDrawerProps> = ({
   open,
   hud,
+  language = 'id',
   onClose,
   onFeedItem,
   onBuyFoodItem,
@@ -109,6 +113,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
   const [activeTab, setActiveTab] = useState<ShopTab>('makanan');
   const [costumeFilter, setCostumeFilter] = useState<CostumeFilter>('all');
   const [bathFilter, setBathFilter] = useState<BathShopFilter>('all');
+  const t = getTranslations(language);
 
   if (!open) return null;
 
@@ -119,7 +124,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
       <div className="pointer-events-auto relative w-full max-w-[640px] short:max-w-[550px] mt-5 short:mt-3">
         {/* Top Overlapping Header Plaque (with Cat Ears) */}
         <div className="absolute -top-6 sm:-top-7 short:-top-4 left-4 sm:left-6 z-30">
-          <CatEarsHeaderPlaque title="Toko" />
+          <CatEarsHeaderPlaque title={t.shop.title} />
         </div>
 
         {/* Top-Right Overlapping Red Close Button */}
@@ -127,8 +132,8 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
           type="button"
           onClick={onClose}
           className="absolute -top-4 -right-2 sm:-top-4 sm:-right-3 short:-top-3 short:-right-2 z-30 w-11 h-11 short:w-9 short:h-9 rounded-full bg-gradient-to-b from-[#EF5350] to-[#C62828] border-[3px] short:border-2 border-[#5E2F12] ring-2 ring-[#FFF8E8] shadow-[0_3px_0_#5E2F12] flex items-center justify-center text-white hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer"
-          aria-label="Tutup toko"
-          title="Tutup toko"
+          aria-label={t.shop.closeAria}
+          title={t.shop.closeAria}
         >
           <X className="w-6 h-6 short:w-4 short:h-4 stroke-[3]" />
         </button>
@@ -147,7 +152,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                   draggable={false}
                 />
                 <span className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] tabular-nums">
-                  {hud.coins} Koin
+                  {hud.coins} {t.common.coins}
                 </span>
               </div>
             </div>
@@ -156,12 +161,12 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 short:gap-1 mb-2.5 short:mb-1.5">
               {(
                 [
-                  { id: 'makanan', label: 'Makanan' },
-                  { id: 'mandi', label: 'Mandi' },
-                  { id: 'mainan', label: 'Mainan' },
-                  { id: 'kostum', label: 'Kostum' },
-                  { id: 'rumah', label: 'Rumah' },
-                  { id: 'kasur', label: 'Kasur' },
+                  { id: 'makanan', label: t.shop.tabs.makanan },
+                  { id: 'mandi', label: t.shop.tabs.mandi },
+                  { id: 'mainan', label: t.shop.tabs.mainan },
+                  { id: 'kostum', label: t.shop.tabs.kostum },
+                  { id: 'rumah', label: t.shop.tabs.rumah },
+                  { id: 'kasur', label: t.shop.tabs.kasur },
                 ] as Array<{ id: ShopTab; label: string }>
               ).map((tab) => {
                 const selected = activeTab === tab.id;
@@ -188,16 +193,17 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
               {activeTab === 'makanan' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 short:gap-2">
                   {FOOD_ITEMS.map((item) => {
+                    const foodLoc = t.catalog.foodItems[item.id];
                     const stock = item.isFree
                       ? 0
                       : hud.inventory[item.id as keyof ConsumableInventory] ?? 0;
                     const canAfford = hud.coins >= item.price;
-                    const statLines = item.description.split(' · ');
+                    const statLines = foodLoc.description.split(' · ');
                     const isHungerFull = hud.hunger >= 100;
                     const snackCd = item.isFree ? hud.cooldownsSec.snack : 0;
                     const freeFoodBlocked = snackCd > 0;
                     const freeFoodLabel =
-                      snackCd > 0 ? `CD ${formatCooldownMMSS(snackCd)}` : 'Beri Gratis';
+                      snackCd > 0 ? `CD ${formatCooldownMMSS(snackCd)}` : t.common.giveFree;
 
                     return (
                       <div
@@ -214,7 +220,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                         </div>
 
                         <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1.5">
-                          {item.shortName}
+                          {foodLoc.shortName}
                         </p>
 
                         <div className="w-full space-y-0.5 mb-2.5 short:mb-1.5">
@@ -263,8 +269,8 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                                 }`}
                               >
                                 {isHungerFull
-                                  ? `Kenyang 100 (${stock})`
-                                  : `Pakai (${stock})`}
+                                  ? t.hud.hungerFull(stock)
+                                  : t.hud.useWithStock(stock)}
                               </button>
                             )}
                               <button
@@ -285,7 +291,9 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                                   className="w-4 h-4 short:w-3.5 short:h-3.5 object-contain"
                                   draggable={false}
                                 />
-                                <span>Beli · {item.price}</span>
+                                <span>
+                                  {t.common.buy} · {item.price}
+                                </span>
                               </button>
                           </div>
                         )}
@@ -299,12 +307,12 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                 <div className="space-y-3 short:space-y-2">
                   {isSleeping && (
                     <p className="px-3 py-1.5 rounded-lg bg-[#EFF6FF] border border-[#60A5FA] text-xs short:text-[10px] font-extrabold text-[#1E3A8A] text-center">
-                      Kucing sedang tidur — mandi dikunci sampai bangun.
+                      {t.shop.sleepingNotice}
                     </p>
                   )}
                   {hud.isBathing && (
                     <p className="px-3 py-1.5 rounded-lg bg-[#E0F2FE] border border-[#38BDF8] text-xs short:text-[10px] font-extrabold text-[#0369A1] text-center">
-                      Kucing sedang mandi di dalam bak mandi!
+                      {t.shop.bathingNotice}
                     </p>
                   )}
 
@@ -312,9 +320,9 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                     <div className="flex items-center gap-1 flex-wrap">
                       {(
                         [
-                          { id: 'all', label: 'Semua' },
-                          { id: 'tub', label: 'Bak Mandi' },
-                          { id: 'consumable', label: 'Sabun & Spa' },
+                          { id: 'all', label: t.shop.bathFilters.all },
+                          { id: 'tub', label: t.shop.bathFilters.tub },
+                          { id: 'consumable', label: t.shop.bathFilters.consumable },
                         ] as Array<{ id: BathShopFilter; label: string }>
                       ).map((f) => (
                         <button
@@ -336,10 +344,11 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                   {(bathFilter === 'all' || bathFilter === 'tub') && (
                     <div className="space-y-2 short:space-y-1.5">
                       <p className="text-xs short:text-[10px] font-bold text-[#7A4928] text-center">
-                        Tip: Seret bak mandi di lantai untuk memindahkan posisinya.
+                        {t.shop.bathTip}
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-3 gap-3 short:gap-2">
                         {CAT_BATHTUBS.map((tub) => {
+                          const tubLoc = t.catalog.bathtubs[tub.id];
                           const unlocked = hud.unlockedBathtubs.includes(tub.id);
                           const isEquipped = hud.activeBathtub === tub.id;
                           const canAfford = hud.coins >= tub.price;
@@ -359,17 +368,17 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                               <div className="w-full aspect-[4/3] short:aspect-[16/10] rounded-lg bg-[#E6F4FE] border border-[#93C5FD] flex items-center justify-center p-2 short:p-1 mb-2 short:mb-1">
                                 <img
                                   src={tub.imgSrc}
-                                  alt={tub.name}
+                                  alt={tubLoc.name}
                                   className="w-full h-full object-contain"
                                   draggable={false}
                                 />
                               </div>
 
                               <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1">
-                                {tub.name}
+                                {tubLoc.name}
                               </p>
                               <p className="text-[10px] short:text-[9px] font-medium text-[#6B5749] leading-snug mb-2 short:mb-1.5 line-clamp-2">
-                                {tub.description}
+                                {tubLoc.description}
                               </p>
 
                               {unlocked ? (
@@ -386,10 +395,10 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                                   {isEquipped ? (
                                     <>
                                       <Check className="w-3.5 h-3.5" />
-                                      <span>Dipakai</span>
+                                      <span>{t.common.usedEquipped}</span>
                                     </>
                                   ) : (
-                                    <span>Pakai</span>
+                                    <span>{t.common.use}</span>
                                   )}
                                 </button>
                               ) : (
@@ -423,29 +432,30 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                     <div className="space-y-2 short:space-y-1.5">
                       {bathFilter === 'all' && (
                         <p className="font-display font-extrabold text-xs short:text-[11px] text-[#5A2D12] pt-1 border-t-2 border-[#E5D1AD]/70">
-                          Sabun &amp; Perawatan Mandi
+                          {t.shop.bathConsumablesHeading}
                         </p>
                       )}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 short:gap-2">
                         {BATH_ITEMS.map((item) => {
+                          const bathLoc = t.catalog.bathItems[item.id];
                           const stock = item.isFree
                             ? 0
                             : hud.inventory[item.id as keyof ConsumableInventory] ?? 0;
                           const canAfford = hud.coins >= item.price;
-                          const statLines = item.description.split(' · ');
+                          const statLines = bathLoc.description.split(' · ');
                           const isCleanFull = hud.cleanliness >= 100;
                           const soapCd = item.isFree ? hud.cooldownsSec.basicSoap : 0;
                           const freeBathBlocked =
                             isSleeping || hud.isBathing || isCleanFull || soapCd > 0;
                           const freeBathLabel = hud.isBathing
-                            ? 'Sedang Mandi'
+                            ? t.shop.bathingBtn
                             : isSleeping
-                            ? 'Sedang Tidur'
+                            ? t.shop.sleepingBtn
                             : isCleanFull
-                            ? 'Bersih 100'
+                            ? t.hud.cleanFull()
                             : soapCd > 0
                             ? `CD ${formatCooldownMMSS(soapCd)}`
-                            : 'Gunakan Gratis';
+                            : t.common.useFree;
                           const useBathBlocked = isSleeping || hud.isBathing || isCleanFull;
 
                           return (
@@ -463,7 +473,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                               </div>
 
                               <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1.5">
-                                {item.shortName}
+                                {bathLoc.shortName}
                               </p>
 
                               <div className="w-full space-y-0.5 mb-2.5 short:mb-1.5">
@@ -512,12 +522,12 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                                       }`}
                                     >
                                       {hud.isBathing
-                                        ? 'Sedang Mandi'
+                                        ? t.shop.bathingBtn
                                         : isSleeping
-                                        ? 'Sedang Tidur'
+                                        ? t.shop.sleepingBtn
                                         : isCleanFull
-                                        ? `Bersih 100 (${stock})`
-                                        : `Pakai (${stock})`}
+                                        ? t.hud.cleanFull(stock)
+                                        : t.hud.useWithStock(stock)}
                                     </button>
                                   )}
                                   <button
@@ -538,7 +548,9 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                                       className="w-4 h-4 short:w-3.5 short:h-3.5 object-contain"
                                       draggable={false}
                                     />
-                                    <span>Beli · {item.price}</span>
+                                    <span>
+                                      {t.common.buy} · {item.price}
+                                    </span>
                                   </button>
                                 </div>
                               )}
@@ -554,10 +566,11 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
               {activeTab === 'mainan' && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-3 gap-3 short:gap-2">
                   {CAT_TOYS.map((toy) => {
+                    const toyLoc = t.catalog.toys[toy.id];
                     const unlocked = hud.unlockedToys.includes(toy.id);
                     const isEquipped = hud.activeToy === toy.id;
                     const canAfford = hud.coins >= toy.price;
-                    const bonusLines = toy.bonusText.split(' · ');
+                    const bonusLines = toyLoc.bonusText.split(' · ');
 
                     return (
                       <div
@@ -575,7 +588,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                         </div>
 
                         <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1.5">
-                          {toy.name}
+                          {toyLoc.name}
                         </p>
 
                         <div className="w-full space-y-0.5 mb-2.5 short:mb-1.5">
@@ -605,10 +618,10 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                             {isEquipped ? (
                               <>
                                 <Check className="w-3.5 h-3.5" />
-                                <span>Dipakai</span>
+                                <span>{t.common.usedEquipped}</span>
                               </>
                             ) : (
-                              <span>Pakai</span>
+                              <span>{t.common.use}</span>
                             )}
                           </button>
                         ) : (
@@ -654,9 +667,9 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                         <div className="flex items-center gap-1 flex-wrap">
                           {(
                             [
-                              { id: 'all', label: 'Semua' },
-                              { id: 'hat', label: 'Topi' },
-                              { id: 'glasses', label: 'Kacamata' },
+                              { id: 'all', label: t.shop.costumeFilters.all },
+                              { id: 'hat', label: t.shop.costumeFilters.hat },
+                              { id: 'glasses', label: t.shop.costumeFilters.glasses },
                             ] as Array<{ id: CostumeFilter; label: string }>
                           ).map((f) => (
                             <button
@@ -680,13 +693,14 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                             onClick={onUnequipAllAccessories}
                             className="px-2.5 py-1 rounded-full text-[11px] short:text-[10px] font-extrabold bg-[#FEF2F2] border border-[#DC2626]/40 text-[#B91C1C] hover:bg-[#FEE2E2] whitespace-nowrap cursor-pointer shrink-0"
                           >
-                            Lepas Semua
+                            {t.common.unequipAll}
                           </button>
                         )}
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-3 gap-3 short:gap-2">
                         {filtered.map((acc) => {
+                          const accLoc = t.catalog.accessories[acc.id];
                           const unlocked = hud.unlockedAccessories.includes(acc.id);
                           const isEquipped =
                             hud.equippedHat === acc.id ||
@@ -695,10 +709,10 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                           const canAfford = hud.coins >= acc.price;
                           const slotLabel =
                             acc.slot === 'hat'
-                              ? 'Topi Mini'
+                              ? t.shop.slotLabels.hat
                               : acc.slot === 'glasses'
-                              ? 'Kacamata'
-                              : 'Syal';
+                              ? t.shop.slotLabels.glasses
+                              : t.shop.slotLabels.scarf;
 
                           return (
                             <div
@@ -720,7 +734,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                               </div>
 
                               <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight">
-                                {acc.name}
+                                {accLoc.name}
                               </p>
                               <p className="text-[10px] short:text-[9px] font-bold text-[#9A4D18] mt-0.5 mb-2 short:mb-1">
                                 {slotLabel}
@@ -736,7 +750,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                                       : 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722] hover:bg-[#D4E6DA]'
                                   }`}
                                 >
-                                  <span>{isEquipped ? 'Lepas' : 'Pasang'}</span>
+                                  <span>{isEquipped ? t.common.unequip : t.common.equip}</span>
                                 </button>
                               ) : (
                                 <button
@@ -769,6 +783,7 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
               {activeTab === 'rumah' && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-3 gap-3 short:gap-2">
                   {ROOM_BACKGROUNDS.map((bg) => {
+                    const bgLoc = t.catalog.backgrounds[bg.id];
                     const unlocked = hud.unlockedBackgrounds.includes(bg.id);
                     const isEquipped = hud.activeBackground === bg.id;
                     const canAfford = hud.coins >= bg.price;
@@ -793,10 +808,10 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                         </div>
 
                         <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1">
-                          {bg.name}
+                          {bgLoc.name}
                         </p>
                         <p className="text-[10px] short:text-[9px] font-medium text-[#6B5749] leading-snug mb-2 short:mb-1.5 line-clamp-2">
-                          {bg.description}
+                          {bgLoc.description}
                         </p>
 
                         {unlocked ? (
@@ -813,10 +828,10 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                             {isEquipped ? (
                               <>
                                 <Check className="w-3.5 h-3.5" />
-                                <span>Dipakai</span>
+                                <span>{t.common.usedEquipped}</span>
                               </>
                             ) : (
-                              <span>Pakai</span>
+                              <span>{t.common.use}</span>
                             )}
                           </button>
                         ) : (
@@ -848,10 +863,11 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
               {activeTab === 'kasur' && (
                 <div className="space-y-2.5 short:space-y-1.5">
                   <p className="text-xs short:text-[10px] font-bold text-[#7A4928] text-center">
-                    Tip: Seret kasur di lantai untuk memindahkan posisinya.
+                    {t.shop.bedTip}
                   </p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-3 gap-3 short:gap-2">
                     {CAT_BEDS.map((bed) => {
+                      const bedLoc = t.catalog.beds[bed.id];
                       const unlocked = hud.unlockedBeds.includes(bed.id);
                       const isEquipped = hud.activeBed === bed.id;
                       const canAfford = hud.coins >= bed.price;
@@ -871,17 +887,17 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                           <div className="w-full aspect-[4/3] short:aspect-[16/10] rounded-lg bg-[#EFE4CE] border border-[#D8C29D] flex items-center justify-center p-2 short:p-1 mb-2 short:mb-1">
                             <img
                               src={bed.imgSrc}
-                              alt={bed.name}
+                              alt={bedLoc.name}
                               className="w-full h-full object-contain"
                               draggable={false}
                             />
                           </div>
 
                           <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1">
-                            {bed.name}
+                            {bedLoc.name}
                           </p>
                           <p className="text-[10px] short:text-[9px] font-medium text-[#6B5749] leading-snug mb-2 short:mb-1.5 line-clamp-2">
-                            {bed.description}
+                            {bedLoc.description}
                           </p>
 
                           {unlocked ? (
@@ -898,10 +914,10 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
                               {isEquipped ? (
                                 <>
                                   <Check className="w-3.5 h-3.5" />
-                                  <span>Dipakai</span>
+                                  <span>{t.common.usedEquipped}</span>
                                 </>
                               ) : (
-                                <span>Pakai</span>
+                                <span>{t.common.use}</span>
                               )}
                             </button>
                           ) : (

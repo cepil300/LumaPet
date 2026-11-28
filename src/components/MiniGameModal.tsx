@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Fish, Sparkles, Trophy, X } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
+import { getTranslations } from '../i18n/translations';
+import { AppLanguage } from '../types/game';
 import { OrnateCornerFlourishes } from './CuteGameIcons';
 import { CatEarsHeaderPlaque } from './WoodPanelChrome';
 
 interface MiniGameModalProps {
   open: boolean;
+  language?: AppLanguage;
   catName: string;
   isRaining?: boolean;
   happinessFull?: boolean;
@@ -25,6 +28,7 @@ const GAME_DURATION_SEC = 20;
 
 export const MiniGameModal: React.FC<MiniGameModalProps> = ({
   open,
+  language = 'id',
   catName,
   isRaining = false,
   happinessFull = false,
@@ -37,6 +41,7 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
   const [finished, setFinished] = useState(false);
   const nextIdRef = useRef(1);
   const scoreRef = useRef(0);
+  const t = getTranslations(language);
 
   useEffect(() => {
     if (!open) return;
@@ -110,14 +115,14 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
     <div className="fixed inset-0 z-30 bg-[#18221D]/65 flex items-center justify-center p-3 sm:p-5 short:p-2 safe-inset-hud">
       <div className="relative w-full max-w-[560px] short:max-w-[520px] mt-4 short:mt-2">
         <div className="absolute -top-6 sm:-top-7 short:-top-4 left-1/2 -translate-x-1/2 z-20">
-          <CatEarsHeaderPlaque title="Mini-Game Tangkap Ikan" />
+          <CatEarsHeaderPlaque title={t.minigame.title} />
         </div>
 
         <button
           type="button"
           onClick={finished ? handleFinishClaim : onClose}
           className="absolute -top-3 -right-3 short:-top-2 short:-right-2 z-30 w-10 h-10 short:w-8 short:h-8 rounded-full bg-gradient-to-b from-[#F47B6A] to-[#D64B3B] border-[2.5px] border-[#5E2F12] shadow-[0_3px_0_#5E2F12] text-white flex items-center justify-center hover:brightness-105 cursor-pointer"
-          aria-label="Tutup Mini-Game"
+          aria-label={t.minigame.closeAria}
         >
           <X className="w-5 h-5 short:w-4 short:h-4 stroke-[3]" />
         </button>
@@ -128,14 +133,14 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
 
             <div className="flex items-center justify-between gap-3 mb-2.5 short:mb-1.5 text-xs short:text-[11px] font-extrabold text-[#5A2D12]">
               <span>
-                Bantu {catName} tangkap ikan di kolam!
+                {t.minigame.prompt(catName)}
                 {isRaining && (
-                  <span className="ml-1.5 text-[#0369A1]">(Hujan: +5 Bahagia · -2 Bersih)</span>
+                  <span className="ml-1.5 text-[#0369A1]">{t.minigame.rainBonusHint}</span>
                 )}
               </span>
               <div className="flex items-center gap-2.5 tabular-nums">
                 <span className="px-2.5 py-1 rounded-full bg-[#FEF3C7] border border-[#D97706]">
-                  Skor: {score}
+                  {t.minigame.scoreLabel(score)}
                 </span>
                 <span
                   className={`px-2.5 py-1 rounded-full border ${
@@ -144,7 +149,8 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
                       : 'bg-[#E0F2FE] border-[#0284C7] text-[#075985]'
                   }`}
                 >
-                  {timeLeft}d
+                  {timeLeft}
+                  {t.common.secShort}
                 </span>
               </div>
             </div>
@@ -199,10 +205,10 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
                 </div>
                 <div>
                   <h3 className="font-display font-black text-lg short:text-base text-[#4A2510]">
-                    Selesai! Skor {score} Poin
+                    {t.minigame.finishedTitle(score)}
                   </h3>
                   <p className="text-xs short:text-[11px] font-bold text-[#6E4423] mt-0.5">
-                    Hadiah: +{coinsReward} Koin · +{happyReward} Bahagia{!happinessFull && isRaining ? ' (Hujan +5)' : ''} · -10 Energi · -5 Kenyang · -{cleanCostDisplay} Bersih · +12 XP Ikatan
+                    {t.minigame.rewardSummary(coinsReward, happyReward, !happinessFull && isRaining, cleanCostDisplay)}
                   </p>
                 </div>
                 <button
@@ -210,7 +216,7 @@ export const MiniGameModal: React.FC<MiniGameModalProps> = ({
                   onClick={handleFinishClaim}
                   className="w-full px-5 py-2.5 short:py-2 min-h-[44px] short:min-h-[38px] rounded-xl bg-gradient-to-b from-[#458E53] to-[#2B6639] border-2 border-[#1E4627] shadow-[inset_0_2px_0_#78C785,0_3px_0_#1E4627] text-white font-display font-extrabold text-sm hover:brightness-105 cursor-pointer"
                 >
-                  Ambil Hadiah
+                  {t.minigame.claimBtn}
                 </button>
               </div>
             )}

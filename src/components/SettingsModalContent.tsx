@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Globe, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
+import { LANGUAGE_OPTIONS, getTranslations } from '../i18n/translations';
 import { GameSettings } from '../types/game';
 import {
   CareNotificationPermission,
@@ -102,6 +103,7 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
   );
   const [fullscreenOn, setFullscreenOn] = useState<boolean>(() => isFullscreenActive());
   const fullscreenAvailable = isFullscreenSupported();
+  const t = getTranslations(settings.language);
 
   useEffect(() => {
     const syncFullscreen = () => setFullscreenOn(isFullscreenActive());
@@ -130,7 +132,7 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
       {/* Top Subtitle + Back Button */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs sm:text-[13px] short:text-[11px] font-bold text-[#7A4928]">
-          Sesuaikan suara &amp; notifikasi
+          {t.settings.subtitle}
         </p>
         <button
           type="button"
@@ -138,8 +140,47 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
           className="inline-flex items-center gap-1.5 text-xs sm:text-[13px] font-display font-extrabold text-[#5A2D12] py-1.5 px-3 min-h-[36px] short:min-h-[32px] rounded-xl bg-gradient-to-b from-[#F8E7BE] to-[#DFBC7B] border-2 border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFFBF0,0_2.5px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer shrink-0"
         >
           <ArrowLeft className="w-3.5 h-3.5 stroke-[2.5]" />
-          <span>Kembali</span>
+          <span>{t.common.back}</span>
         </button>
+      </div>
+
+      {/* Bahasa / Language Selector Card */}
+      <div className="p-3.5 sm:p-4 short:p-2.5 rounded-2xl short:rounded-xl bg-[#FFFDF4] border-[2.5px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_2px_0_rgba(110,59,27,0.12)] space-y-2 short:space-y-1.5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Globe className="w-4 h-4 text-[#5E2F12] shrink-0" />
+            <p className="font-display text-sm sm:text-base short:text-xs font-extrabold text-[#4E270F]">
+              {t.settings.languageLabel}
+            </p>
+          </div>
+          <p className="text-xs short:text-[10px] font-medium text-[#7A4928] mt-0.5">
+            {t.settings.languageDesc}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-5 short:grid-cols-5 gap-1.5">
+          {LANGUAGE_OPTIONS.map((opt) => {
+            const active = settings.language === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onUpdateSettings({ language: opt.id })}
+                aria-pressed={active}
+                className={`px-2 py-1.5 min-h-[36px] short:min-h-[30px] rounded-xl border-2 text-[11px] sm:text-xs short:text-[10.5px] font-display font-extrabold inline-flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                  active
+                    ? 'bg-gradient-to-b from-[#458E53] to-[#276135] border-[#1A4223] shadow-[inset_0_1.5px_0_#7CD18A,0_2.5px_0_#1A4223] text-white'
+                    : 'bg-[#FFF8EA] border-[#C79C69] text-[#5A2D12] hover:bg-[#FCEEC8]'
+                }`}
+              >
+                <span className="leading-none shrink-0" aria-hidden="true">
+                  {opt.flag}
+                </span>
+                <span className="truncate">{opt.name}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Volume Suara Card */}
@@ -149,11 +190,11 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
             <div className="flex items-center gap-1.5">
               <CozySpeakerIcon className="w-5 h-5 short:w-4 short:h-4 shrink-0" />
               <p className="font-display text-sm sm:text-base short:text-xs font-extrabold text-[#4E270F]">
-                Volume Suara
+                {t.settings.volumeTitle}
               </p>
             </div>
             <p className="text-xs short:text-[10px] font-medium text-[#7A4928] mt-0.5">
-              Atur persentase besar kecil suara game
+              {t.settings.volumeDesc}
             </p>
           </div>
           <span className="px-3 py-1 short:px-2.5 short:py-0.5 rounded-xl bg-gradient-to-b from-[#FFE684] to-[#F2B83C] border-2 border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFF8CC,0_2px_0_#6E3B1B] text-xs sm:text-sm font-display font-black text-[#4E270F] tabular-nums shrink-0">
@@ -184,7 +225,7 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
             step={1}
             value={settings.volume}
             onChange={(e) => onUpdateSettings({ volume: Number(e.target.value) })}
-            aria-label="Persentase volume suara"
+            aria-label={t.settings.volumeAria}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           />
         </div>
@@ -197,11 +238,11 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
             <div className="flex items-center gap-1.5">
               <CozySpeakerIcon className="w-4 h-4 shrink-0" />
               <p className="font-display text-sm short:text-xs font-extrabold text-[#4E270F] truncate">
-                Efek Suara (SFX)
+                {t.settings.sfxTitle}
               </p>
             </div>
             <p className="text-[11px] short:text-[10px] font-medium text-[#7A4928] leading-tight mt-0.5">
-              Meong, dengkuran &amp; mainan
+              {t.settings.sfxDesc}
             </p>
           </div>
           <button
@@ -213,7 +254,7 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
                 : 'bg-gradient-to-b from-[#458E53] to-[#276135] border-[#1A4223] shadow-[inset_0_1.5px_0_#7CD18A,0_2.5px_0_#1A4223] text-white hover:brightness-105'
             }`}
           >
-            {settings.sfxMuted ? 'Mati' : 'Aktif'}
+            {settings.sfxMuted ? t.common.off : t.common.active}
           </button>
         </div>
 
@@ -222,11 +263,11 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
             <div className="flex items-center gap-1.5">
               <CozyMusicNotesIcon className="w-4 h-4 shrink-0" />
               <p className="font-display text-sm short:text-xs font-extrabold text-[#4E270F] truncate">
-                Musik Latar
+                {t.settings.musicTitle}
               </p>
             </div>
             <p className="text-[11px] short:text-[10px] font-medium text-[#7A4928] leading-tight mt-0.5">
-              Musik menu &amp; dalam game
+              {t.settings.musicDesc}
             </p>
           </div>
           <button
@@ -238,7 +279,7 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
                 : 'bg-gradient-to-b from-[#458E53] to-[#276135] border-[#1A4223] shadow-[inset_0_1.5px_0_#7CD18A,0_2.5px_0_#1A4223] text-white hover:brightness-105'
             }`}
           >
-            {settings.musicMuted ? 'Mati' : 'Aktif'}
+            {settings.musicMuted ? t.common.off : t.common.active}
           </button>
         </div>
       </div>
@@ -249,11 +290,11 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
           <div className="flex items-center gap-1.5">
             <CozyBowlIcon className="w-4 h-4 shrink-0" />
             <p className="font-display text-sm short:text-xs font-extrabold text-[#4E270F]">
-              Notifikasi Makan
+              {t.settings.notifTitle}
             </p>
           </div>
           <p className="text-xs short:text-[10px] font-medium text-[#7A4928] mt-0.5">
-            Ingatkan saat kenyang di bawah 40%
+            {t.settings.notifDesc}
           </p>
         </div>
         <button
@@ -273,12 +314,12 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
           }`}
         >
           {notifPerm === 'granted'
-            ? 'Aktif'
+            ? t.common.enabled
             : notifPerm === 'denied'
-            ? 'Diblokir'
+            ? t.common.blocked
             : notifPerm === 'unsupported'
-            ? 'Tidak Didukung'
-            : 'Izinkan'}
+            ? t.common.unsupported
+            : t.common.allow}
         </button>
       </div>
 
@@ -292,11 +333,11 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
               <Maximize2 className="w-4 h-4 text-[#5E2F12] shrink-0" />
             )}
             <p className="font-display text-sm short:text-xs font-extrabold text-[#4E270F]">
-              Layar Penuh (Fullscreen)
+              {t.settings.fullscreenTitle}
             </p>
           </div>
           <p className="text-xs short:text-[10px] font-medium text-[#7A4928] mt-0.5">
-            Sembunyikan status bar &amp; navigasi perangkat
+            {t.settings.fullscreenDesc}
           </p>
         </div>
         <button
@@ -311,7 +352,11 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
               : 'bg-gradient-to-b from-[#FFE684] to-[#F2B83C] border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFF8CC,0_2.5px_0_#6E3B1B] text-[#4E270F] hover:brightness-105 cursor-pointer'
           }`}
         >
-          {!fullscreenAvailable ? 'Tidak Didukung' : fullscreenOn ? 'Aktif' : 'Aktifkan'}
+          {!fullscreenAvailable
+            ? t.common.unsupported
+            : fullscreenOn
+            ? t.common.enabled
+            : t.common.enable}
         </button>
       </div>
 
@@ -321,7 +366,7 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
         onClick={onClose}
         className="w-full px-5 py-3 short:py-2 min-h-[48px] short:min-h-[40px] rounded-2xl short:rounded-xl bg-gradient-to-b from-[#468E54] to-[#276135] border-[2.5px] border-[#1A4223] shadow-[inset_0_2px_0_#7AD088,0_4px_0_#1A4223] text-white font-display font-extrabold text-base short:text-sm hover:brightness-105 active:translate-y-0.5 transition-all cursor-pointer"
       >
-        Selesai
+        {t.common.done}
       </button>
 
       {/* Optional Clear Save button on Title Menu */}
@@ -332,7 +377,7 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
           className="w-full px-4 py-2 min-h-[40px] rounded-xl bg-[#FFFDF8] border-2 border-[#DC2626]/40 text-[#B91C1C] text-xs font-bold hover:bg-[#FEF2F2] transition-colors flex items-center justify-center gap-2 cursor-pointer"
         >
           <RotateCcw className="w-4 h-4" />
-          <span>Hapus Data Simpanan</span>
+          <span>{t.settings.clearSave}</span>
         </button>
       )}
     </div>
