@@ -13,10 +13,12 @@ import {
   BathItemId,
   BowlTreatType,
   CAT_ACCESSORIES,
+  CAT_BATHTUBS,
   CAT_BEDS,
   CAT_BREEDS,
   CAT_TOYS,
   CatAccessoryId,
+  CatBathtubId,
   CatBedId,
   CatBehavior,
   CatBreed,
@@ -78,6 +80,7 @@ import {
   CatRenderState,
   computeRoomTransform,
   drawCat,
+  drawCatBathtub,
   drawCatBed,
   drawFoodBowl,
   drawParticles,
@@ -90,6 +93,13 @@ import {
   screenToRoom,
   ToyRenderState,
 } from './catRenderer';
+import {
+  BED_FOOTPRINT,
+  computeScreenRoomBounds,
+  constrainItemPlacement,
+  FloorObstacle,
+  TUB_FOOTPRINT,
+} from './roomPlacement';
 import {
   createWeatherFxState,
   drawRoomWeatherBackdrop,
@@ -115,6 +125,7 @@ export interface CatStageHandle {
   applyShopItem: (item: ShopItem) => boolean;
   buyOrEquipBackground: (bgId: RoomBackgroundId) => boolean;
   buyOrEquipBed: (bedId: CatBedId) => boolean;
+  buyOrEquipBathtub: (tubId: CatBathtubId) => boolean;
   buyOrEquipToy: (toyId: CatToyId) => boolean;
   buyOrEquipAccessory: (accId: CatAccessoryId) => boolean;
   unequipAllAccessories: () => void;
@@ -138,10 +149,11 @@ interface CatStageCanvasProps {
   onAutoSaveNeeded?: () => void;
 }
 
-const DEFAULT_BED_POS = { nx: 0.145, ny: 0.765 };
+const DEFAULT_BED_POS = { nx: 0.265, ny: 0.805 };
+const DEFAULT_TUB_POS = { nx: 0.745, ny: 0.815 };
 const BOWL_POS = { nx: 0.43, ny: 0.748 };
 const FLOOR_BOUNDS = { minX: 0.15, maxX: 0.84, minY: 0.68, maxY: 0.89 };
-const BED_BOUNDS = { minX: 0.11, maxX: 0.87, minY: 0.67, maxY: 0.90 };
+const BATH_ANIM_DURATION_SEC = 10.0;
 const PARTICLE_POOL_SIZE = 96;
 const PLAY_SESSION_SECONDS = 10;
 const FREE_COIN_REWARD_COOLDOWN_MS = 90 * 1000;
@@ -210,6 +222,19 @@ function normalizeBedId(raw?: string): CatBedId {
   }
 }
 
+function normalizeBathtubId(raw?: string): CatBathtubId {
+  switch (raw) {
+    case 'bak_ikan':
+    case 'bak_onsen':
+    case 'bak_kerang':
+    case 'bak_batu':
+    case 'bak_kucing':
+      return raw;
+    default:
+      return 'bak_kucing';
+  }
+}
+
 function normalizeToyId(raw?: string): CatToyId {
   switch (raw) {
     case 'laser_pointer':
@@ -256,9 +281,11 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const backdropImgsRef = useRef<Partial<Record<RoomBackgroundId, HTMLImageElement>>>({});
     const bedImgsRef = useRef<Partial<Record<CatBedId, HTMLImageElement>>>({});
+    const tubImgsRef = useRef<Partial<Record<CatBathtubId, HTMLImageElement>>>({});
     const spriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const babySpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const childSpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
+    const bathSpriteSheetsRef = useRef<Partial<Record<CatBreed, HTMLImageElement>>>({});
     const gameStateRef = useRef<GameState>(gameState);
     const toolModeRef = useRef<ToolMode>(toolMode);
     const previewBreedRef = useRef<CatBreed>(previewBreed);
@@ -379,11 +406,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         sleepManual: 0,
       },
 
-      // Room, Bed, Toy & Accessory customization
+      // Room, Bed, Bathtub, Toy & Accessory customization
       activeBackground: 'classic_home' as RoomBackgroundId,
       unlockedBackgrounds: ['classic_home'] as RoomBackgroundId[],
       activeBed: 'kasur_kucing' as CatBedId,
       unlockedBeds: ['kasur_kucing'] as CatBedId[],
+      activeBathtub: 'bak_kucing' as CatBathtubId,
+      unlockedBathtubs: ['bak_kucing'] as CatBathtubId[],
       activeToy: 'yarn_ball' as CatToyId,
       unlockedToys: ['yarn_ball'] as CatToyId[],
       equippedHat: 'none' as CatHatId,
@@ -392,14 +421,32 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       unlockedAccessories: [] as CatAccessoryId[],
       bedNx: DEFAULT_BED_POS.nx,
       bedNy: DEFAULT_BED_POS.ny,
+      tubNx: DEFAULT_TUB_POS.nx,
+      tubNy: DEFAULT_TUB_POS.ny,
 
-      // Bed drag state
+      // Bed & Bathtub drag state
       bedDragCandidate: false,
       isDraggingBed: false,
       bedDragStartX: 0,
       bedDragStartY: 0,
       bedDragOffsetNx: 0,
       bedDragOffsetNy: 0,
+      tubDragCandidate: false,
+      isDraggingTub: false,
+      tubDragStartX: 0,
+      tubDragStartY: 0,
+      tubDragOffsetNx: 0,
+      tubDragOffsetNy: 0,
+
+      // Bathing walk + tub animation state
+      walkingToBath: false,
+      pendingBathId: null as BathItemId | null,
+      isBathing: false,
+      bathTimer: 0,
+      bathDuration: BATH_ANIM_DURATION_SEC,
+      bathParticleTimer: 0,
+      bathMidSoundPlayed: false,
+      activeBathItemId: null as BathItemId | null,
 
       // Bowl
       bowlAmount: 0,
@@ -613,6 +660,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       if (isRecovering && s.isSick) moodLabel = 'Pemulihan (Masih Sakit)';
       else if (isRecovering) moodLabel = 'Hampir Pulih Total';
       else if (s.isSick) moodLabel = 'Sedang Sakit';
+      else if (s.isBathing || s.walkingToBath) moodLabel = 'Sedang Mandi';
       else if (s.behavior === 'SLEEPING') {
         moodLabel =
           s.sleepMode === 'auto_sleep'
@@ -724,6 +772,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         unlockedBackgrounds: [...s.unlockedBackgrounds],
         activeBed: s.activeBed,
         unlockedBeds: [...s.unlockedBeds],
+        activeBathtub: s.activeBathtub,
+        unlockedBathtubs: [...s.unlockedBathtubs],
+        isBathing: s.isBathing || s.walkingToBath,
         activeToy: s.activeToy,
         unlockedToys: [...s.unlockedToys],
         equippedHat: s.equippedHat,
@@ -739,6 +790,80 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         moodLabel,
         warningText,
       };
+    };
+
+    const getRoomPlacementBounds = () => {
+      const canvas = canvasRef.current;
+      const s = simRef.current;
+      const vw = canvas ? canvas.clientWidth : 0;
+      const vh = canvas ? canvas.clientHeight : 0;
+      return computeScreenRoomBounds(s.lastRoomTransform, vw, vh);
+    };
+
+    const constrainBedPos = (
+      nx: number,
+      ny: number,
+      fallback?: { nx: number; ny: number }
+    ) => {
+      const s = simRef.current;
+      const obstacles: FloorObstacle[] = [
+        { kind: 'ellipse', cx: BOWL_POS.nx, cy: BOWL_POS.ny, rx: 0.036, ry: 0.018 },
+        { kind: 'ellipse', cx: s.tubNx, cy: s.tubNy, rx: 0.048, ry: 0.022 },
+      ];
+      return constrainItemPlacement(
+        s.activeBackground,
+        nx,
+        ny,
+        BED_FOOTPRINT,
+        getRoomPlacementBounds(),
+        obstacles,
+        fallback
+      );
+    };
+
+    const constrainTubPos = (
+      nx: number,
+      ny: number,
+      fallback?: { nx: number; ny: number }
+    ) => {
+      const s = simRef.current;
+      const obstacles: FloorObstacle[] = [
+        { kind: 'ellipse', cx: BOWL_POS.nx, cy: BOWL_POS.ny, rx: 0.036, ry: 0.018 },
+        { kind: 'ellipse', cx: s.bedNx, cy: s.bedNy, rx: 0.048, ry: 0.022 },
+      ];
+      return constrainItemPlacement(
+        s.activeBackground,
+        nx,
+        ny,
+        TUB_FOOTPRINT,
+        getRoomPlacementBounds(),
+        obstacles,
+        fallback
+      );
+    };
+
+    const reconcileDraggablePositions = () => {
+      const s = simRef.current;
+      const nextBed = constrainBedPos(s.bedNx, s.bedNy);
+      s.bedNx = nextBed.nx;
+      s.bedNy = nextBed.ny;
+      const nextTub = constrainTubPos(s.tubNx, s.tubNy);
+      s.tubNx = nextTub.nx;
+      s.tubNy = nextTub.ny;
+
+      if (s.isBathing) {
+        s.nx = s.tubNx;
+        s.ny = s.tubNy;
+      } else if (s.walkingToBath) {
+        s.targetNx = s.tubNx;
+        s.targetNy = s.tubNy;
+      } else if (s.behavior === 'SLEEPING') {
+        s.nx = s.bedNx;
+        s.ny = s.bedNy;
+      } else if (s.behavior === 'WALKING' && s.idleDecisionTimer < -50) {
+        s.targetNx = s.bedNx;
+        s.targetNy = s.bedNy;
+      }
     };
 
     const feedItemInternal = (foodId: FoodItemId): boolean => {
@@ -861,6 +986,114 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return true;
     };
 
+    const completeBathSession = (spawnEffects: boolean) => {
+      const s = simRef.current;
+      const bathId = s.activeBathItemId ?? s.pendingBathId;
+      s.walkingToBath = false;
+      s.pendingBathId = null;
+      s.isBathing = false;
+      s.bathTimer = 0;
+      s.bathMidSoundPlayed = false;
+      s.activeBathItemId = null;
+
+      if (!bathId) return;
+      const item = BATH_ITEMS.find((b) => b.id === bathId);
+      if (!item) return;
+
+      const now = Date.now();
+      s.cleanliness = clamp(s.cleanliness + item.cleanlinessDelta, 0, 100);
+      s.happiness = clamp(s.happiness + item.happinessDelta, 0, 100);
+      if (bathId === 'spa_bath') {
+        s.cleanliness = 100;
+        s.lowCleanlinessStrikes = 0;
+        s.wasUnder25Clean = false;
+        s.dirtyStayTimer = 0;
+      }
+
+      // Place cat cleanly beside the bathtub when stepping out
+      s.nx = clamp(
+        s.tubNx + (s.tubNx > 0.5 ? -0.1 : 0.1),
+        FLOOR_BOUNDS.minX,
+        FLOOR_BOUNDS.maxX
+      );
+      s.ny = clamp(s.tubNy + 0.02, FLOOR_BOUNDS.minY, FLOOR_BOUNDS.maxY);
+      s.z = 0;
+      s.vz = 0;
+      s.behavior = 'IDLE';
+      s.idleDecisionTimer = 1.8;
+
+      const tubPos = roomToScreen(s.tubNx, s.tubNy - 0.06, s.lastRoomTransform);
+      if (spawnEffects) {
+        soundEngine.playMeow(1.06);
+        soundEngine.playChime();
+        const bubbleCount = bathId === 'spa_bath' ? 12 : bathId === 'shampoo_foam' ? 9 : 6;
+        for (let i = 0; i < bubbleCount; i++) {
+          spawnParticle(
+            i % 3 === 0 && bathId === 'spa_bath' ? 'sparkle' : 'bubble',
+            tubPos.x + (Math.random() - 0.5) * 72,
+            tubPos.y - 12 + (Math.random() - 0.5) * 34,
+            {
+              color: bathId === 'spa_bath' ? '#F9A8D4' : '#BAE6FD',
+              size: 5 + Math.random() * 5,
+              vx: (Math.random() - 0.5) * 44,
+              vy: -32 - Math.random() * 24,
+              maxLife: 1.0,
+            }
+          );
+        }
+        spawnParticle('text', tubPos.x, tubPos.y - 44, {
+          label:
+            bathId === 'spa_bath'
+              ? `Bersih Penuh 100% · +${item.happinessDelta} Bahagia`
+              : `+${item.cleanlinessDelta} Bersih · +${item.happinessDelta} Bahagia`,
+          color: bathId === 'spa_bath' ? '#FBCFE8' : '#BAE6FD',
+          size: 13.5,
+          vy: -28,
+          maxLife: 1.55,
+        });
+      }
+
+      const canRewardCoins =
+        !item.isFree || now - s.lastFreeBathTime >= FREE_COIN_REWARD_COOLDOWN_MS;
+      if (canRewardCoins) {
+        if (item.isFree) s.lastFreeBathTime = now;
+        addXpAndCoins(6, 1, tubPos.x, tubPos.y - 62);
+      }
+
+      onBatheCompleteRef.current?.();
+      onHudUpdate(buildSnapshot());
+      onAutoSaveNeededRef.current?.();
+    };
+
+    const enterBathtub = () => {
+      const s = simRef.current;
+      s.walkingToBath = false;
+      s.activeBathItemId = s.pendingBathId ?? 'basic_soap';
+      s.pendingBathId = null;
+      s.isBathing = true;
+      s.bathTimer = BATH_ANIM_DURATION_SEC;
+      s.bathDuration = BATH_ANIM_DURATION_SEC;
+      s.bathParticleTimer = 0.12;
+      s.bathMidSoundPlayed = false;
+      s.nx = s.tubNx;
+      s.ny = s.tubNy;
+      s.z = 0;
+      s.vz = 0;
+      s.behavior = 'GROOMING';
+      soundEngine.playBrush();
+      const tubPos = roomToScreen(s.tubNx, s.tubNy - 0.05, s.lastRoomTransform);
+      for (let i = 0; i < 6; i++) {
+        spawnParticle('bubble', tubPos.x + (Math.random() - 0.5) * 56, tubPos.y - 10, {
+          color: '#BAE6FD',
+          size: 4.5 + Math.random() * 4.5,
+          vx: (Math.random() - 0.5) * 34,
+          vy: -26 - Math.random() * 20,
+          maxLife: 0.9,
+        });
+      }
+      onHudUpdate(buildSnapshot());
+    };
+
     const useBathItemInternal = (bathId: BathItemId): boolean => {
       const s = simRef.current;
       soundEngine.unlock();
@@ -878,6 +1111,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           size: 13.5,
           vy: -26,
           maxLife: 1.4,
+        });
+        return false;
+      }
+
+      if (s.isBathing || s.walkingToBath) {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: `${s.name} sudah menuju / sedang mandi di bak!`,
+          color: '#BAE6FD',
+          size: 13.5,
+          vy: -26,
+          maxLife: 1.35,
         });
         return false;
       }
@@ -914,58 +1159,31 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.inventory = { ...s.inventory, [key]: s.inventory[key] - 1 };
       }
 
-      s.cleanliness = clamp(s.cleanliness + item.cleanlinessDelta, 0, 100);
-      s.happiness = clamp(s.happiness + item.happinessDelta, 0, 100);
-      if (bathId === 'spa_bath') {
-        s.cleanliness = 100;
-        s.lowCleanlinessStrikes = 0;
-        s.wasUnder25Clean = false;
-        s.dirtyStayTimer = 0;
-      }
+      // Cancel active play/zoomies and walk to the bathtub
+      s.toy.active = false;
+      s.playSession.active = false;
+      s.idleZoomies = false;
+      onToySessionEndRef.current?.();
 
+      s.pendingBathId = bathId;
+      s.walkingToBath = true;
       s.z = 0;
       s.vz = 0;
-      s.behavior = 'GROOMING';
-      s.groomTimer = 1.6;
-      s.scaleX = 1.07;
-      s.scaleY = 0.94;
-      soundEngine.playBrush();
+      s.behavior = 'WALKING';
+      s.targetNx = s.tubNx;
+      s.targetNy = s.tubNy;
+      soundEngine.playMeow(1.08);
       if (bathId !== 'basic_soap') {
         soundEngine.playChime();
       }
 
-      const bubbleCount = bathId === 'spa_bath' ? 12 : bathId === 'shampoo_foam' ? 9 : 6;
-      for (let i = 0; i < bubbleCount; i++) {
-        spawnParticle(
-          i % 3 === 0 && bathId === 'spa_bath' ? 'sparkle' : 'bubble',
-          catPos.x + (Math.random() - 0.5) * 64,
-          catPos.y - 8 + (Math.random() - 0.5) * 34,
-          {
-            color: bathId === 'spa_bath' ? '#F9A8D4' : '#BAE6FD',
-            size: 5 + Math.random() * 5,
-            vx: (Math.random() - 0.5) * 44,
-            vy: -32 - Math.random() * 24,
-            maxLife: 1.0,
-          }
-        );
-      }
-
-      spawnParticle('text', catPos.x, catPos.y - 38, {
-        label:
-          bathId === 'spa_bath'
-            ? `Bersih Penuh 100% · +${item.happinessDelta} Bahagia`
-            : `+${item.cleanlinessDelta} Bersih · +${item.happinessDelta} Bahagia`,
-        color: bathId === 'spa_bath' ? '#FBCFE8' : '#BAE6FD',
-        size: 13.5,
-        vy: -28,
-        maxLife: 1.55,
+      spawnParticle('text', catPos.x, catPos.y - 36, {
+        label: `Menuju bak mandi (${item.shortName})...`,
+        color: '#BAE6FD',
+        size: 13,
+        vy: -26,
+        maxLife: 1.35,
       });
-
-      const canRewardCoins = !item.isFree || now - s.lastFreeBathTime >= FREE_COIN_REWARD_COOLDOWN_MS;
-      if (canRewardCoins) {
-        if (item.isFree) s.lastFreeBathTime = now;
-        addXpAndCoins(6, 1, catPos.x, catPos.y - 58);
-      }
 
       onHudUpdate(buildSnapshot());
       return true;
@@ -982,6 +1200,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         spawnParticle('text', catPos.x, catPos.y - 36, {
           label: 'Zzz... Sedang tidur',
           color: '#BFDBFE',
+          size: 13.5,
+          vy: -24,
+          maxLife: 1.2,
+        });
+        return false;
+      }
+
+      if (s.isBathing || s.walkingToBath) {
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 36, {
+          label: 'Tunggu sebentar, sedang mandi!',
+          color: '#BAE6FD',
           size: 13.5,
           vy: -24,
           maxLife: 1.2,
@@ -1154,6 +1384,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         return false;
       }
 
+      if (s.isBathing || s.walkingToBath) {
+        completeBathSession(false);
+      }
+
       const opt = SLEEP_OPTIONS.find((o) => o.id === mode) ?? SLEEP_OPTIONS[0];
       const isBriefDayNap = dayPhase !== 'malam' && s.energy > 70 && mode === 'power_nap';
 
@@ -1312,6 +1546,21 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           size: 13.5,
           vy: -28,
           maxLife: 1.45,
+        });
+        onToySessionEndRef.current?.();
+        return;
+      }
+
+      if (s.isBathing || s.walkingToBath) {
+        s.toy.active = false;
+        s.playSession.active = false;
+        soundEngine.playBounce();
+        spawnParticle('text', catPos.x, catPos.y - 34, {
+          label: 'Sedang mandi di bak!',
+          color: '#BAE6FD',
+          size: 13.5,
+          vy: -28,
+          maxLife: 1.35,
         });
         onToySessionEndRef.current?.();
         return;
@@ -1507,13 +1756,22 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         soundEngine.unlock();
         const item = BATH_ITEMS.find((b) => b.id === bathId);
         if (!item || s.coins < item.price) return false;
-        if (useImmediately && (s.behavior === 'SLEEPING' || s.sleepMode !== 'none' || Math.round(s.cleanliness) >= 100)) {
+        if (
+          useImmediately &&
+          (s.behavior === 'SLEEPING' ||
+            s.sleepMode !== 'none' ||
+            s.isBathing ||
+            s.walkingToBath ||
+            Math.round(s.cleanliness) >= 100)
+        ) {
           const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
           soundEngine.playBounce();
           spawnParticle('text', catPos.x, catPos.y - 34, {
             label:
               s.behavior === 'SLEEPING' || s.sleepMode !== 'none'
                 ? 'Mandi dikunci saat tidur!'
+                : s.isBathing || s.walkingToBath
+                ? 'Sedang mandi di bak!'
                 : 'Bersih sudah penuh (100)!',
             color: '#FCA5A5',
             size: 13.5,
@@ -1730,6 +1988,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         soundEngine.unlock();
         if (s.unlockedBackgrounds.includes(bgId)) {
           s.activeBackground = bgId;
+          reconcileDraggablePositions();
           soundEngine.playChime();
           onHudUpdate(buildSnapshot());
           return true;
@@ -1739,6 +1998,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.coins -= option.price;
         s.unlockedBackgrounds = [...s.unlockedBackgrounds, bgId];
         s.activeBackground = bgId;
+        reconcileDraggablePositions();
         soundEngine.playChime();
         const catPos = roomToScreen(s.nx, s.ny - 0.08, s.lastRoomTransform);
         spawnParticle('text', catPos.x, catPos.y - 34, {
@@ -1771,6 +2031,33 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         spawnParticle('text', bedPos.x, bedPos.y - 34, {
           label: `Kasur Baru: ${option.name}!`,
           color: '#A7F3D0',
+          size: 14,
+          vy: -28,
+          maxLife: 1.5,
+        });
+        onHudUpdate(buildSnapshot());
+        return true;
+      },
+
+      buyOrEquipBathtub: (tubId: CatBathtubId): boolean => {
+        const s = simRef.current;
+        soundEngine.unlock();
+        if (s.unlockedBathtubs.includes(tubId)) {
+          s.activeBathtub = tubId;
+          soundEngine.playChime();
+          onHudUpdate(buildSnapshot());
+          return true;
+        }
+        const option = CAT_BATHTUBS.find((t) => t.id === tubId);
+        if (!option || s.coins < option.price) return false;
+        s.coins -= option.price;
+        s.unlockedBathtubs = [...s.unlockedBathtubs, tubId];
+        s.activeBathtub = tubId;
+        soundEngine.playChime();
+        const tubPos = roomToScreen(s.tubNx, s.tubNy - 0.04, s.lastRoomTransform);
+        spawnParticle('text', tubPos.x, tubPos.y - 34, {
+          label: `Bak Mandi Baru: ${option.name}!`,
+          color: '#BAE6FD',
           size: 14,
           vy: -28,
           maxLife: 1.5,
@@ -1882,6 +2169,19 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
       getSaveData: (): SaveData => {
         const s = simRef.current;
+        if (s.isBathing || s.walkingToBath) {
+          // Ensure pending bath rewards aren't lost if saved/closed mid-bath
+          const pendingId = s.activeBathItemId ?? s.pendingBathId;
+          if (pendingId) {
+            const item = BATH_ITEMS.find((b) => b.id === pendingId);
+            if (item) {
+              s.cleanliness = clamp(s.cleanliness + item.cleanlinessDelta, 0, 100);
+              s.happiness = clamp(s.happiness + item.happinessDelta, 0, 100);
+              s.pendingBathId = null;
+              s.activeBathItemId = null;
+            }
+          }
+        }
         const now = Date.now();
         return {
           name: s.name,
@@ -1911,6 +2211,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           unlockedBackgrounds: [...s.unlockedBackgrounds],
           activeBed: s.activeBed,
           unlockedBeds: [...s.unlockedBeds],
+          activeBathtub: s.activeBathtub,
+          unlockedBathtubs: [...s.unlockedBathtubs],
           activeToy: s.activeToy,
           unlockedToys: [...s.unlockedToys],
           equippedHat: s.equippedHat,
@@ -1933,6 +2235,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           cooldownsUntil: { ...s.cooldownsUntil },
           bedNx: s.bedNx,
           bedNy: s.bedNy,
+          tubNx: s.tubNx,
+          tubNy: s.tubNy,
           lastFreeFeedAt: s.lastFreeFeedTime > 0 ? s.lastFreeFeedTime : undefined,
           lowCleanlinessStrikes: s.lowCleanlinessStrikes,
           wasUnder25Clean: s.wasUnder25Clean,
@@ -2033,6 +2337,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.unlockedBackgrounds = ['classic_home'];
         s.activeBed = 'kasur_kucing';
         s.unlockedBeds = ['kasur_kucing'];
+        s.activeBathtub = 'bak_kucing';
+        s.unlockedBathtubs = ['bak_kucing'];
         s.activeToy = 'yarn_ball';
         s.unlockedToys = ['yarn_ball'];
         s.equippedHat = 'none';
@@ -2041,8 +2347,18 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         s.unlockedAccessories = [];
         s.bedNx = DEFAULT_BED_POS.nx;
         s.bedNy = DEFAULT_BED_POS.ny;
+        s.tubNx = DEFAULT_TUB_POS.nx;
+        s.tubNy = DEFAULT_TUB_POS.ny;
         s.bedDragCandidate = false;
         s.isDraggingBed = false;
+        s.tubDragCandidate = false;
+        s.isDraggingTub = false;
+        s.walkingToBath = false;
+        s.pendingBathId = null;
+        s.isBathing = false;
+        s.bathTimer = 0;
+        s.bathMidSoundPlayed = false;
+        s.activeBathItemId = null;
         s.bowlAmount = 0;
         s.bowlTreatType = 'snack';
         s.mealHungerRemaining = 0;
@@ -2242,6 +2558,14 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         if (!s.unlockedBeds.includes('kasur_kucing')) {
           s.unlockedBeds.push('kasur_kucing');
         }
+        s.activeBathtub = normalizeBathtubId(save.activeBathtub);
+        s.unlockedBathtubs =
+          save.unlockedBathtubs && save.unlockedBathtubs.length > 0
+            ? Array.from(new Set(save.unlockedBathtubs.map((id) => normalizeBathtubId(id))))
+            : ['bak_kucing'];
+        if (!s.unlockedBathtubs.includes('bak_kucing')) {
+          s.unlockedBathtubs.push('bak_kucing');
+        }
         s.activeToy = normalizeToyId(save.activeToy);
         s.unlockedToys =
           save.unlockedToys && save.unlockedToys.length > 0
@@ -2270,10 +2594,21 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.unlockedAccessories.includes(save.equippedScarf)
             ? save.equippedScarf
             : 'default';
-        s.bedNx = clamp(save.bedNx ?? DEFAULT_BED_POS.nx, BED_BOUNDS.minX, BED_BOUNDS.maxX);
-        s.bedNy = clamp(save.bedNy ?? DEFAULT_BED_POS.ny, BED_BOUNDS.minY, BED_BOUNDS.maxY);
+        s.bedNx = save.bedNx ?? DEFAULT_BED_POS.nx;
+        s.bedNy = save.bedNy ?? DEFAULT_BED_POS.ny;
+        s.tubNx = save.tubNx ?? DEFAULT_TUB_POS.nx;
+        s.tubNy = save.tubNy ?? DEFAULT_TUB_POS.ny;
+        reconcileDraggablePositions();
         s.bedDragCandidate = false;
         s.isDraggingBed = false;
+        s.tubDragCandidate = false;
+        s.isDraggingTub = false;
+        s.walkingToBath = false;
+        s.pendingBathId = null;
+        s.isBathing = false;
+        s.bathTimer = 0;
+        s.bathMidSoundPlayed = false;
+        s.activeBathItemId = null;
         if (s.sleepMode !== 'none') {
           s.behavior = 'SLEEPING';
           s.nx = s.bedNx;
@@ -2573,6 +2908,7 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           case 'unlock_all_shop':
             s.unlockedBackgrounds = ROOM_BACKGROUNDS.map((b) => b.id);
             s.unlockedBeds = CAT_BEDS.map((b) => b.id);
+            s.unlockedBathtubs = CAT_BATHTUBS.map((t) => t.id);
             s.unlockedToys = CAT_TOYS.map((t) => t.id);
             s.unlockedAccessories = CAT_ACCESSORIES.map((a) => a.id);
             soundEngine.playChime();
@@ -2737,6 +3073,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         bedImgsRef.current[bed.id] = img;
       });
 
+      CAT_BATHTUBS.forEach((tub) => {
+        const img = new Image();
+        img.src = tub.imgSrc;
+        tubImgsRef.current[tub.id] = img;
+      });
+
       (Object.keys(CAT_BREEDS) as CatBreed[]).forEach((breedKey) => {
         const sheetImg = new Image();
         sheetImg.src = CAT_BREEDS[breedKey].spriteSheet;
@@ -2749,6 +3091,10 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         const childSheetImg = new Image();
         childSheetImg.src = CAT_BREEDS[breedKey].childSpriteSheet;
         childSpriteSheetsRef.current[breedKey] = childSheetImg;
+
+        const bathSheetImg = new Image();
+        bathSheetImg.src = CAT_BREEDS[breedKey].bathSpriteSheet;
+        bathSpriteSheetsRef.current[breedKey] = bathSheetImg;
       });
 
       const canvas = canvasRef.current;
@@ -2770,6 +3116,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         canvas.style.width = `${w}px`;
         canvas.style.height = `${h}px`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        simRef.current.lastRoomTransform = computeRoomTransform(w, h);
+        reconcileDraggablePositions();
       };
 
       resize();
@@ -3363,6 +3711,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
                 // Fase Kelelahan Total (Energi == 0): otomatis masuk [AUTO-SLEEP] 4 menit
                 if (s.energy <= 0 && s.autoSleepRetryTimer <= 0) {
+                  if (s.isBathing || s.walkingToBath) {
+                    completeBathSession(false);
+                  }
                   const autoEnergyTarget =
                     Math.round(
                       AUTO_SLEEP_CONFIG.energyDelta *
@@ -3897,7 +4248,37 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
 
             // Cat Behavior State Machine
             s.isSprinting = false;
-            if (s.behavior === 'PURRING') {
+            if (s.isBathing) {
+              s.nx = s.tubNx;
+              s.ny = s.tubNy;
+              s.bathTimer -= dt;
+              s.bathParticleTimer -= dt;
+              const elapsedFrac =
+                1 - Math.max(0, s.bathTimer) / Math.max(0.01, s.bathDuration);
+              if (!s.bathMidSoundPlayed && elapsedFrac >= 0.45) {
+                s.bathMidSoundPlayed = true;
+                soundEngine.playBrush();
+              }
+              if (s.bathParticleTimer <= 0) {
+                s.bathParticleTimer = 0.28;
+                const tubPos = roomToScreen(s.tubNx, s.tubNy - 0.05, rt);
+                spawnParticle(
+                  Math.random() < 0.28 ? 'sparkle' : 'bubble',
+                  tubPos.x + (Math.random() - 0.5) * 64,
+                  tubPos.y - 16 + (Math.random() - 0.5) * 26,
+                  {
+                    color: s.activeBathItemId === 'spa_bath' ? '#F9A8D4' : '#BAE6FD',
+                    size: 4.5 + Math.random() * 4.5,
+                    vx: (Math.random() - 0.5) * 32,
+                    vy: -28 - Math.random() * 20,
+                    maxLife: 0.95,
+                  }
+                );
+              }
+              if (s.bathTimer <= 0) {
+                completeBathSession(true);
+              }
+            } else if (s.behavior === 'PURRING') {
               s.purrDecayTimer -= dt;
               if (s.purrDecayTimer <= 0) {
                 s.behavior = 'IDLE';
@@ -3994,7 +4375,9 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 gState === 'PLAYING' &&
                 s.bowlAmount > 0.05 &&
                 s.hunger < 99 &&
-                s.idleDecisionTimer > -50
+                s.idleDecisionTimer > -50 &&
+                !s.walkingToBath &&
+                !s.isBathing
               ) {
                 s.idleZoomies = false;
                 s.behavior = 'WALKING';
@@ -4119,6 +4502,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                         });
                       }
                     }
+                  } else if (s.walkingToBath) {
+                    enterBathtub();
                   } else if (s.idleDecisionTimer < -50) {
                     s.behavior = 'SLEEPING';
                     s.facing = 1;
@@ -4290,6 +4675,22 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           equippedScarf: s.equippedScarf,
         };
 
+        const bathProgress = s.isBathing
+          ? clamp(1 - s.bathTimer / Math.max(0.01, s.bathDuration), 0, 0.999)
+          : 0;
+        const bathFrameCol =
+          bathProgress < 0.14
+            ? 0
+            : bathProgress < 0.34
+            ? 1
+            : bathProgress < 0.5
+            ? 2
+            : bathProgress < 0.65
+            ? 1
+            : bathProgress < 0.8
+            ? 2
+            : 3;
+
         const roomObjects: Array<{ y: number; draw: () => void }> = [
           {
             y: s.bedNy - 0.015,
@@ -4304,6 +4705,27 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 s.isDraggingBed
               ),
           },
+          {
+            y: s.tubNy - 0.015,
+            draw: () =>
+              drawCatBathtub(
+                ctx,
+                s.activeBathtub,
+                s.tubNx,
+                s.tubNy,
+                rt,
+                tubImgsRef.current,
+                s.isDraggingTub,
+                s.isBathing
+                  ? {
+                      active: true,
+                      breed: s.breed,
+                      frameCol: bathFrameCol,
+                      bathSheets: bathSpriteSheetsRef.current,
+                    }
+                  : undefined
+              ),
+          },
           { y: bowlState.ny, draw: () => drawFoodBowl(ctx, bowlState, rt) },
         ];
         if (toyState.active) {
@@ -4312,15 +4734,17 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         roomObjects.sort((a, b) => a.y - b.y);
         roomObjects.forEach((d) => d.draw());
 
-        // Karakter kucing selalu berada di atas semua objek ruangan (aksesori tetap di atas kucing)
-        drawCat(
-          ctx,
-          catState,
-          rt,
-          spriteSheetsRef.current,
-          babySpriteSheetsRef.current,
-          childSpriteSheetsRef.current
-        );
+        // Karakter kucing selalu berada di atas semua objek ruangan (dan hilang saat masuk ke bak mandi)
+        if (!s.isBathing) {
+          drawCat(
+            ctx,
+            catState,
+            rt,
+            spriteSheetsRef.current,
+            babySpriteSheetsRef.current,
+            childSpriteSheetsRef.current
+          );
+        }
 
         drawParticles(ctx, s.particles);
 
@@ -4373,6 +4797,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       return Math.hypot(px - bedScr.x, py - bedScr.y) <= bedRadius;
     };
 
+    const isPointOnTub = (px: number, py: number, rt: RoomTransform): boolean => {
+      const s = simRef.current;
+      const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.03, rt);
+      const tubRadius = 74 * Math.max(0.65, rt.scale);
+      return Math.hypot(px - tubScr.x, py - tubScr.y) <= tubRadius;
+    };
+
     const updateCanvasCursor = (px: number, py: number) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -4387,9 +4818,12 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
         canvas.style.cursor = "url('/assets/ui/cursor_brush.png') 10 10, grab";
       } else if (mode === 'TOY') {
         canvas.style.cursor = 'crosshair';
-      } else if (s.isDraggingBed) {
+      } else if (s.isDraggingBed || s.isDraggingTub) {
         canvas.style.cursor = 'grabbing';
-      } else if (isPointOnBed(px, py, s.lastRoomTransform)) {
+      } else if (
+        isPointOnBed(px, py, s.lastRoomTransform) ||
+        isPointOnTub(px, py, s.lastRoomTransform)
+      ) {
         canvas.style.cursor = 'grab';
       } else {
         canvas.style.cursor = 'pointer';
@@ -4415,6 +4849,38 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
       s.lastPointerY = py;
 
       const mode = toolModeRef.current;
+
+      if (s.isBathing || s.walkingToBath) {
+        if (mode === 'BRUSH' && (distToCat <= hitRadius || isPointOnTub(px, py, rt))) {
+          if (moveDist > 2 && Math.random() < 0.3) {
+            soundEngine.unlock();
+            spawnParticle(
+              'bubble',
+              px + (Math.random() - 0.5) * 20,
+              py + (Math.random() - 0.5) * 16,
+              {
+                size: 4 + Math.random() * 3.5,
+                vx: (Math.random() - 0.5) * 26,
+                vy: -28 - Math.random() * 18,
+                maxLife: 0.7,
+              }
+            );
+          }
+          return;
+        }
+        if (isClick && s.brushHintCooldown <= 0) {
+          s.brushHintCooldown = 1.0;
+          const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.05, rt);
+          spawnParticle('text', tubScr.x, tubScr.y - 34, {
+            label: 'Sedang mandi di bak!',
+            color: '#BAE6FD',
+            size: 13,
+            vy: -24,
+            maxLife: 1.05,
+          });
+        }
+        return;
+      }
 
       if (mode === 'TOY' && isClick) {
         const roomPt = screenToRoom(px, py, rt);
@@ -4648,6 +5114,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           simRef.current.petRubAccum = 0;
           simRef.current.bedDragCandidate = false;
           simRef.current.isDraggingBed = false;
+          simRef.current.tubDragCandidate = false;
+          simRef.current.isDraggingTub = false;
         }}
         onPointerDown={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
@@ -4658,28 +5126,48 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.pointerX = px;
           s.pointerY = py;
 
-          if (
-            gameStateRef.current === 'PLAYING' &&
-            toolModeRef.current === 'PET' &&
-            isPointOnBed(px, py, s.lastRoomTransform)
-          ) {
+          if (gameStateRef.current === 'PLAYING' && toolModeRef.current === 'PET') {
             const rt = s.lastRoomTransform;
-            const roomPt = screenToRoom(px, py, rt);
-            const catScr = roomToScreen(s.nx, s.ny - 0.045, rt);
-            const hitRadius = 72 * Math.max(0.7, rt.scale);
-            const distToCat = Math.hypot(px - catScr.x, py - catScr.y);
+            const onBed = isPointOnBed(px, py, rt);
+            const onTub = isPointOnTub(px, py, rt);
+            if (onBed || onTub) {
+              const bedScr = roomToScreen(s.bedNx, s.bedNy - 0.03, rt);
+              const tubScr = roomToScreen(s.tubNx, s.tubNy - 0.03, rt);
+              const pickTub =
+                onTub &&
+                (!onBed ||
+                  Math.hypot(px - tubScr.x, py - tubScr.y) <=
+                    Math.hypot(px - bedScr.x, py - bedScr.y));
 
-            s.bedDragCandidate = true;
-            s.bedDragStartX = px;
-            s.bedDragStartY = py;
-            s.bedDragOffsetNx = s.bedNx - roomPt.nx;
-            s.bedDragOffsetNy = s.bedNy - roomPt.ny;
-            if (distToCat > hitRadius) {
-              s.isDraggingBed = true;
-              soundEngine.unlock();
+              const roomPt = screenToRoom(px, py, rt);
+              const catScr = roomToScreen(s.nx, s.ny - 0.045, rt);
+              const hitRadius = 72 * Math.max(0.7, rt.scale);
+              const distToCat = Math.hypot(px - catScr.x, py - catScr.y);
+
+              if (pickTub) {
+                s.tubDragCandidate = true;
+                s.tubDragStartX = px;
+                s.tubDragStartY = py;
+                s.tubDragOffsetNx = s.tubNx - roomPt.nx;
+                s.tubDragOffsetNy = s.tubNy - roomPt.ny;
+                if (distToCat > hitRadius || s.isBathing) {
+                  s.isDraggingTub = true;
+                  soundEngine.unlock();
+                }
+              } else {
+                s.bedDragCandidate = true;
+                s.bedDragStartX = px;
+                s.bedDragStartY = py;
+                s.bedDragOffsetNx = s.bedNx - roomPt.nx;
+                s.bedDragOffsetNy = s.bedNy - roomPt.ny;
+                if (distToCat > hitRadius) {
+                  s.isDraggingBed = true;
+                  soundEngine.unlock();
+                }
+              }
+              updateCanvasCursor(px, py);
+              return;
             }
-            updateCanvasCursor(px, py);
-            return;
           }
 
           handlePointerInteraction(e.clientX, e.clientY, true);
@@ -4693,6 +5181,32 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           s.pointerX = px;
           s.pointerY = py;
 
+          if (s.tubDragCandidate && s.pointerDown) {
+            if (!s.isDraggingTub && Math.hypot(px - s.tubDragStartX, py - s.tubDragStartY) > 6) {
+              s.isDraggingTub = true;
+              soundEngine.unlock();
+            }
+            if (s.isDraggingTub) {
+              const roomPt = screenToRoom(px, py, s.lastRoomTransform);
+              const nextTub = constrainTubPos(
+                roomPt.nx + s.tubDragOffsetNx,
+                roomPt.ny + s.tubDragOffsetNy,
+                { nx: s.tubNx, ny: s.tubNy }
+              );
+              s.tubNx = nextTub.nx;
+              s.tubNy = nextTub.ny;
+              if (s.isBathing) {
+                s.nx = s.tubNx;
+                s.ny = s.tubNy;
+              } else if (s.walkingToBath) {
+                s.targetNx = s.tubNx;
+                s.targetNy = s.tubNy;
+              }
+              updateCanvasCursor(px, py);
+              return;
+            }
+          }
+
           if (s.bedDragCandidate && s.pointerDown) {
             if (!s.isDraggingBed && Math.hypot(px - s.bedDragStartX, py - s.bedDragStartY) > 6) {
               s.isDraggingBed = true;
@@ -4700,8 +5214,13 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
             }
             if (s.isDraggingBed) {
               const roomPt = screenToRoom(px, py, s.lastRoomTransform);
-              s.bedNx = clamp(roomPt.nx + s.bedDragOffsetNx, BED_BOUNDS.minX, BED_BOUNDS.maxX);
-              s.bedNy = clamp(roomPt.ny + s.bedDragOffsetNy, BED_BOUNDS.minY, BED_BOUNDS.maxY);
+              const nextBed = constrainBedPos(
+                roomPt.nx + s.bedDragOffsetNx,
+                roomPt.ny + s.bedDragOffsetNy,
+                { nx: s.bedNx, ny: s.bedNy }
+              );
+              s.bedNx = nextBed.nx;
+              s.bedNy = nextBed.ny;
               if (s.behavior === 'SLEEPING') {
                 s.nx = s.bedNx;
                 s.ny = s.bedNy;
@@ -4747,15 +5266,32 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
           const px = e.clientX - rect.left;
           const py = e.clientY - rect.top;
           const s = simRef.current;
-          const wasCandidate = s.bedDragCandidate;
-          const wasDragging = s.isDraggingBed;
+          const wasBedCandidate = s.bedDragCandidate;
+          const wasDraggingBed = s.isDraggingBed;
+          const wasTubCandidate = s.tubDragCandidate;
+          const wasDraggingTub = s.isDraggingTub;
           s.pointerDown = false;
           s.brushScrubAccum = 0;
           s.petRubAccum = 0;
           s.bedDragCandidate = false;
           s.isDraggingBed = false;
+          s.tubDragCandidate = false;
+          s.isDraggingTub = false;
 
-          if (wasDragging) {
+          if (wasDraggingTub) {
+            soundEngine.playBounce();
+            const tubScr = roomToScreen(s.tubNx, s.tubNy, s.lastRoomTransform);
+            for (let i = 0; i < 4; i++) {
+              spawnParticle('sparkle', tubScr.x + (Math.random() - 0.5) * 60, tubScr.y, {
+                color: '#7DD3FC',
+                size: 7,
+                vx: (Math.random() - 0.5) * 45,
+                vy: -25 - Math.random() * 25,
+                maxLife: 0.65,
+              });
+            }
+            onAutoSaveNeededRef.current?.();
+          } else if (wasDraggingBed) {
             soundEngine.playBounce();
             const bedScr = roomToScreen(s.bedNx, s.bedNy, s.lastRoomTransform);
             for (let i = 0; i < 4; i++) {
@@ -4767,7 +5303,8 @@ export const CatStageCanvas = forwardRef<CatStageHandle, CatStageCanvasProps>(
                 maxLife: 0.65,
               });
             }
-          } else if (wasCandidate) {
+            onAutoSaveNeededRef.current?.();
+          } else if (wasBedCandidate || wasTubCandidate) {
             handlePointerInteraction(e.clientX, e.clientY, true);
           }
           updateCanvasCursor(px, py);

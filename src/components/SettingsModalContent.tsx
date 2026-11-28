@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
-import { ArrowLeft, RotateCcw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowLeft, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
 import { GameSettings } from '../types/game';
 import {
   CareNotificationPermission,
   getCareNotificationPermission,
   requestCareNotificationPermission,
 } from '../utils/catCareSystem';
+import {
+  isFullscreenActive,
+  isFullscreenSupported,
+  toggleImmersiveFullscreen,
+} from '../utils/fullscreen';
 
 interface SettingsModalContentProps {
   settings: GameSettings;
@@ -95,10 +100,29 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
   const [notifPerm, setNotifPerm] = useState<CareNotificationPermission>(() =>
     getCareNotificationPermission()
   );
+  const [fullscreenOn, setFullscreenOn] = useState<boolean>(() => isFullscreenActive());
+  const fullscreenAvailable = isFullscreenSupported();
+
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreenOn(isFullscreenActive());
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    window.addEventListener('resize', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+      window.removeEventListener('resize', syncFullscreen);
+    };
+  }, []);
 
   const handleRequestNotif = async () => {
     const res = await requestCareNotificationPermission();
     setNotifPerm(res);
+  };
+
+  const handleToggleFullscreen = async () => {
+    const next = await toggleImmersiveFullscreen();
+    setFullscreenOn(next);
   };
 
   return (
@@ -255,6 +279,39 @@ export const SettingsModalContent: React.FC<SettingsModalContentProps> = ({
             : notifPerm === 'unsupported'
             ? 'Tidak Didukung'
             : 'Izinkan'}
+        </button>
+      </div>
+
+      {/* Layar Penuh (Fullscreen) Card */}
+      <div className="flex items-center justify-between gap-3 p-3.5 short:p-2.5 rounded-2xl short:rounded-xl bg-[#FFFDF4] border-[2.5px] short:border-2 border-[#6E3B1B] shadow-[inset_0_2px_0_#FFFFFF,0_2px_0_rgba(110,59,27,0.12)]">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            {fullscreenOn ? (
+              <Minimize2 className="w-4 h-4 text-[#5E2F12] shrink-0" />
+            ) : (
+              <Maximize2 className="w-4 h-4 text-[#5E2F12] shrink-0" />
+            )}
+            <p className="font-display text-sm short:text-xs font-extrabold text-[#4E270F]">
+              Layar Penuh (Fullscreen)
+            </p>
+          </div>
+          <p className="text-xs short:text-[10px] font-medium text-[#7A4928] mt-0.5">
+            Sembunyikan status bar &amp; navigasi perangkat
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={!fullscreenAvailable}
+          onClick={handleToggleFullscreen}
+          className={`px-4 py-2 min-h-[38px] short:min-h-[32px] rounded-xl text-xs font-display font-extrabold border-2 transition-all whitespace-nowrap shrink-0 active:translate-y-0.5 ${
+            !fullscreenAvailable
+              ? 'bg-gradient-to-b from-[#DCDAD5] to-[#B7B5AF] border-[#78756E] shadow-[inset_0_1.5px_0_#F3F2EE,0_2.5px_0_#78756E] text-[#69665F] cursor-not-allowed'
+              : fullscreenOn
+              ? 'bg-gradient-to-b from-[#458E53] to-[#276135] border-[#1A4223] shadow-[inset_0_1.5px_0_#7CD18A,0_2.5px_0_#1A4223] text-white hover:brightness-105 cursor-pointer'
+              : 'bg-gradient-to-b from-[#FFE684] to-[#F2B83C] border-[#6E3B1B] shadow-[inset_0_1.5px_0_#FFF8CC,0_2.5px_0_#6E3B1B] text-[#4E270F] hover:brightness-105 cursor-pointer'
+          }`}
+        >
+          {!fullscreenAvailable ? 'Tidak Didukung' : fullscreenOn ? 'Aktif' : 'Aktifkan'}
         </button>
       </div>
 

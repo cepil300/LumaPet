@@ -24,6 +24,15 @@
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
+
+  html:fullscreen,
+  html:-webkit-full-screen,
+  body:fullscreen,
+  body:-webkit-full-screen {
+    width: 100vw;
+    height: 100dvh;
+    background-color: #1f2b26;
+  }
 }
 
 .safe-inset-hud {

@@ -677,7 +677,7 @@ export function sendLowHungerNotification(): void {
   try {
     new Notification('Rumah Kucing', {
       body: LOW_HUNGER_NOTIFICATION_MESSAGE,
-      icon: '/assets/ui/cat_logo_wink.png',
+      icon: '/assets/aistudio/image_e0ece965.png',
       tag: 'rumah-kucing-hunger-20',
     });
   } catch {
@@ -687,7 +687,7 @@ export function sendLowHungerNotification(): void {
         .then((reg) =>
           reg.showNotification('Rumah Kucing', {
             body: LOW_HUNGER_NOTIFICATION_MESSAGE,
-            icon: '/assets/ui/cat_logo_wink.png',
+            icon: '/assets/aistudio/image_e0ece965.png',
             tag: 'rumah-kucing-hunger-20',
           })
         )

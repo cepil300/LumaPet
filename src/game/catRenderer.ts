@@ -1,7 +1,9 @@
 import {
   AdultEvolutionBranch,
   BowlTreatType,
+  CAT_BATHTUBS,
   CAT_BREEDS,
+  CatBathtubId,
   CatBedId,
   CatBehavior,
   CatBreed,
@@ -288,6 +290,116 @@ export function drawCatBed(
     ctx.ellipse(0, -10, 68, 28, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+export function drawCatBathtub(
+  ctx: CanvasRenderingContext2D,
+  tubId: CatBathtubId,
+  nx: number,
+  ny: number,
+  rt: RoomTransform,
+  tubImgs: Partial<Record<CatBathtubId, HTMLImageElement>>,
+  isDragging = false,
+  bathState?: {
+    active: boolean;
+    breed: CatBreed;
+    frameCol: number;
+    bathSheets: Partial<Record<CatBreed, HTMLImageElement>>;
+  }
+): void {
+  const pos = roomToScreen(nx, ny, rt);
+  const s = Math.max(0.58, rt.scale * 0.96);
+  const liftY = isDragging ? 14 * s : 0;
+
+  ctx.save();
+
+  if (isDragging) {
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+    ctx.fillStyle = 'rgba(38, 30, 22, 0.22)';
+    ctx.lineWidth = 2.4;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 8 * s, 82 * s, 26 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else {
+    ctx.fillStyle = 'rgba(38, 30, 22, 0.17)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 8 * s, 72 * s, 21 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const scaleMult = isDragging ? 1.07 : 1.0;
+  ctx.translate(pos.x, pos.y - liftY);
+  ctx.scale(s * scaleMult, s * scaleMult);
+
+  const tubMeta = CAT_BATHTUBS.find((t) => t.id === tubId) ?? CAT_BATHTUBS[0];
+  const bathSheet = bathState?.active ? bathState.bathSheets[bathState.breed] : undefined;
+
+  if (
+    bathState?.active &&
+    bathSheet &&
+    bathSheet.complete &&
+    bathSheet.naturalWidth > 0 &&
+    bathSheet.naturalHeight > 0
+  ) {
+    const cols = 4;
+    const rows = 5;
+    const cellW = bathSheet.naturalWidth / cols;
+    const cellH = bathSheet.naturalHeight / rows;
+    const col = Math.max(0, Math.min(cols - 1, Math.floor(bathState.frameCol)));
+    const row = Math.max(0, Math.min(rows - 1, tubMeta.spriteRow));
+    const spriteCellLayout: Record<CatBathtubId, { width: number; anchorY: number }> = {
+      bak_kucing: { width: 209, anchorY: 0.851 },
+      bak_ikan: { width: 212, anchorY: 0.879 },
+      bak_onsen: { width: 212, anchorY: 0.871 },
+      bak_kerang: { width: 218, anchorY: 0.865 },
+      bak_batu: { width: 198, anchorY: 0.859 },
+    };
+    const layout = spriteCellLayout[tubId] ?? spriteCellLayout.bak_kucing;
+    const targetW = layout.width;
+    const targetH = targetW * (cellH / cellW);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(
+      bathSheet,
+      col * cellW,
+      row * cellH,
+      cellW,
+      cellH,
+      -targetW / 2,
+      -targetH * layout.anchorY,
+      targetW,
+      targetH
+    );
+  } else {
+    const img = tubImgs[tubId];
+    if (img && img.complete && img.naturalWidth > 0) {
+      const targetW =
+        tubId === 'bak_ikan'
+          ? 166
+          : tubId === 'bak_batu'
+          ? 156
+          : tubId === 'bak_kerang'
+          ? 152
+          : tubId === 'bak_onsen'
+          ? 142
+          : 148;
+      const targetH = targetW * (img.naturalHeight / img.naturalWidth);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(img, -targetW / 2, -targetH * 0.83, targetW, targetH);
+    } else {
+      ctx.fillStyle = '#BAE6FD';
+      ctx.strokeStyle = '#312924';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.ellipse(0, -14, 64, 28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   ctx.restore();

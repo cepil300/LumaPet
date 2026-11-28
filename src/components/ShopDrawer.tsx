@@ -4,9 +4,11 @@ import {
   BATH_ITEMS,
   BathItemId,
   CAT_ACCESSORIES,
+  CAT_BATHTUBS,
   CAT_BEDS,
   CAT_TOYS,
   CatAccessoryId,
+  CatBathtubId,
   CatBedId,
   CatHudSnapshot,
   CatToyId,
@@ -41,6 +43,7 @@ interface ShopDrawerProps {
   onBuyBathItem: (bathId: Exclude<BathItemId, 'basic_soap'>, useImmediately?: boolean) => void;
   onSelectBackground: (bgId: RoomBackgroundId) => void;
   onSelectBed: (bedId: CatBedId) => void;
+  onSelectBathtub: (tubId: CatBathtubId) => void;
   onSelectToy: (toyId: CatToyId) => void;
   onSelectAccessory: (accId: CatAccessoryId) => void;
   onUnequipAllAccessories: () => void;
@@ -48,6 +51,7 @@ interface ShopDrawerProps {
 
 type ShopTab = 'makanan' | 'mandi' | 'mainan' | 'kostum' | 'rumah' | 'kasur';
 type CostumeFilter = 'all' | 'hat' | 'glasses';
+type BathShopFilter = 'all' | 'tub' | 'consumable';
 
 function renderTabIcon(tab: ShopTab) {
   switch (tab) {
@@ -97,12 +101,14 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
   onBuyBathItem,
   onSelectBackground,
   onSelectBed,
+  onSelectBathtub,
   onSelectToy,
   onSelectAccessory,
   onUnequipAllAccessories,
 }) => {
   const [activeTab, setActiveTab] = useState<ShopTab>('makanan');
   const [costumeFilter, setCostumeFilter] = useState<CostumeFilter>('all');
+  const [bathFilter, setBathFilter] = useState<BathShopFilter>('all');
 
   if (!open) return null;
 
@@ -294,127 +300,258 @@ export const ShopDrawer: React.FC<ShopDrawerProps> = ({
               )}
 
               {activeTab === 'mandi' && (
-                <div className="space-y-2.5 short:space-y-1.5">
+                <div className="space-y-3 short:space-y-2">
                   {isSleeping && (
                     <p className="px-3 py-1.5 rounded-lg bg-[#EFF6FF] border border-[#60A5FA] text-xs short:text-[10px] font-extrabold text-[#1E3A8A] text-center">
                       Kucing sedang tidur — mandi dikunci sampai bangun.
                     </p>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 short:gap-2">
-                    {BATH_ITEMS.map((item) => {
-                      const stock = item.isFree
-                        ? 0
-                        : hud.inventory[item.id as keyof ConsumableInventory] ?? 0;
-                      const canAfford = hud.coins >= item.price;
-                      const statLines = item.description.split(' · ');
-                      const isCleanFull = hud.cleanliness >= 100;
-                      const soapCd = item.isFree ? hud.cooldownsSec.basicSoap : 0;
-                      const freeBathBlocked = isSleeping || isCleanFull || soapCd > 0;
-                      const freeBathLabel = isSleeping
-                        ? 'Sedang Tidur'
-                        : isCleanFull
-                        ? 'Bersih 100'
-                        : soapCd > 0
-                        ? `CD ${formatCooldownMMSS(soapCd)}`
-                        : 'Gunakan Gratis';
-                      const useBathBlocked = isSleeping || isCleanFull;
+                  {hud.isBathing && (
+                    <p className="px-3 py-1.5 rounded-lg bg-[#E0F2FE] border border-[#38BDF8] text-xs short:text-[10px] font-extrabold text-[#0369A1] text-center">
+                      Kucing sedang mandi di dalam bak mandi!
+                    </p>
+                  )}
 
-                      return (
-                        <div
-                          key={item.id}
-                          className="relative rounded-xl short:rounded-lg bg-[#FFFDF7] border-2 border-[#C79C69] shadow-[0_3px_0_#E5D1AD] p-3 short:p-2 flex flex-col items-center text-center justify-between"
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {(
+                        [
+                          { id: 'all', label: 'Semua' },
+                          { id: 'tub', label: 'Bak Mandi' },
+                          { id: 'consumable', label: 'Sabun & Spa' },
+                        ] as Array<{ id: BathShopFilter; label: string }>
+                      ).map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setBathFilter(f.id)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] short:text-[10px] font-extrabold border transition-colors cursor-pointer ${
+                            bathFilter === f.id
+                              ? 'bg-[#6E3B1B] border-[#6E3B1B] text-[#FFFDF8]'
+                              : 'bg-[#FFFDF8] border-[#B68D5E] text-[#7A4928] hover:bg-[#FCE8C3]'
+                          }`}
                         >
-                          <OrnateCornerFlourishes className="short:w-3 short:h-3" />
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-                          <div className="w-full aspect-[4/3] short:aspect-[16/10] rounded-lg bg-[#E6F4FE] border border-[#93C5FD] flex items-center justify-center p-2 short:p-1 mb-2 short:mb-1">
-                            <BathItemIcon
-                              variant={item.id}
-                              className="w-16 h-16 short:w-11 short:h-11"
-                            />
-                          </div>
+                  {(bathFilter === 'all' || bathFilter === 'tub') && (
+                    <div className="space-y-2 short:space-y-1.5">
+                      <p className="text-xs short:text-[10px] font-bold text-[#7A4928] text-center">
+                        Tip: Seret bak mandi di lantai untuk memindahkan posisinya.
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-3 gap-3 short:gap-2">
+                        {CAT_BATHTUBS.map((tub) => {
+                          const unlocked = hud.unlockedBathtubs.includes(tub.id);
+                          const isEquipped = hud.activeBathtub === tub.id;
+                          const canAfford = hud.coins >= tub.price;
 
-                          <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1.5">
-                            {item.shortName}
-                          </p>
-
-                          <div className="w-full space-y-0.5 mb-2.5 short:mb-1.5">
-                            {statLines.map((line, idx) => (
-                              <p
-                                key={line}
-                                className={`text-xs short:text-[10px] font-bold text-[#0369A1] leading-tight ${
-                                  idx > 0 ? 'pt-0.5 border-t border-[#E5D1AD]/80' : ''
-                                }`}
-                              >
-                                {line}
-                              </p>
-                            ))}
-                          </div>
-
-                          {item.isFree ? (
-                            <button
-                              type="button"
-                              disabled={freeBathBlocked}
-                              onClick={() => {
-                                if (freeBathBlocked) return;
-                                onUseBathItem('basic_soap');
-                              }}
-                              className={`w-full py-1.5 short:py-1 px-3 min-h-[40px] short:min-h-[34px] rounded-full border-2 font-display font-black text-xs sm:text-sm short:text-xs tabular-nums transition-all whitespace-nowrap ${
-                                freeBathBlocked
-                                  ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#7D8A83] cursor-not-allowed'
-                                  : 'bg-gradient-to-b from-[#4B9B59] to-[#2E6F3E] border-[#1E4627] text-white shadow-[inset_0_2px_0_#86EFAC,0_3px_0_#1E4627] hover:brightness-105 active:translate-y-0.5 cursor-pointer'
+                          return (
+                            <div
+                              key={tub.id}
+                              className={`relative rounded-xl short:rounded-lg border-2 shadow-[0_3px_0_#E5D1AD] p-3 short:p-2 flex flex-col items-center text-center justify-between ${
+                                isEquipped
+                                  ? 'bg-[#F2FBF5] border-[#2D6A4F]/70'
+                                  : 'bg-[#FFFDF7] border-[#C79C69]'
                               }`}
                             >
-                              {freeBathLabel}
-                            </button>
-                          ) : (
-                            <div className="w-full space-y-1.5">
-                              {stock > 0 && (
+                              <OrnateCornerFlourishes className="short:w-3 short:h-3" />
+                              <PixelStarBadgeIcon className="w-5 h-5 short:w-4 short:h-4 mb-1 short:mb-0.5" />
+
+                              <div className="w-full aspect-[4/3] short:aspect-[16/10] rounded-lg bg-[#E6F4FE] border border-[#93C5FD] flex items-center justify-center p-2 short:p-1 mb-2 short:mb-1">
+                                <img
+                                  src={tub.imgSrc}
+                                  alt={tub.name}
+                                  className="w-full h-full object-contain"
+                                  draggable={false}
+                                />
+                              </div>
+
+                              <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1">
+                                {tub.name}
+                              </p>
+                              <p className="text-[10px] short:text-[9px] font-medium text-[#6B5749] leading-snug mb-2 short:mb-1.5 line-clamp-2">
+                                {tub.description}
+                              </p>
+
+                              {unlocked ? (
                                 <button
                                   type="button"
-                                  disabled={useBathBlocked}
-                                  onClick={() => {
-                                    if (useBathBlocked) return;
-                                    onUseBathItem(item.id);
-                                  }}
-                                  className={`w-full py-1.5 short:py-1 px-3 min-h-[38px] short:min-h-[32px] rounded-full border-2 font-display font-extrabold text-xs short:text-[11px] tabular-nums transition-all whitespace-nowrap ${
-                                    useBathBlocked
-                                      ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#7D8A83] cursor-not-allowed'
+                                  disabled={isEquipped}
+                                  onClick={() => onSelectBathtub(tub.id)}
+                                  className={`w-full py-1.5 short:py-1 px-3 min-h-[38px] short:min-h-[32px] rounded-full border-2 font-display font-extrabold text-xs short:text-[11px] transition-all inline-flex items-center justify-center gap-1 ${
+                                    isEquipped
+                                      ? 'bg-gradient-to-b from-[#4B9B59] to-[#2E6F3E] border-[#1E4627] text-white cursor-default'
                                       : 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722] hover:bg-[#D4E6DA] cursor-pointer'
                                   }`}
                                 >
-                                  {isSleeping
-                                    ? 'Sedang Tidur'
-                                    : isCleanFull
-                                    ? `Bersih 100 (${stock})`
-                                    : `Pakai (${stock})`}
+                                  {isEquipped ? (
+                                    <>
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>Dipakai</span>
+                                    </>
+                                  ) : (
+                                    <span>Pakai</span>
+                                  )}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={!canAfford}
+                                  onClick={() => onSelectBathtub(tub.id)}
+                                  className={`w-full py-1.5 short:py-1 px-3 min-h-[38px] short:min-h-[32px] rounded-full border-2 font-display font-black text-sm short:text-xs tabular-nums transition-all inline-flex items-center justify-center gap-1.5 ${
+                                    canAfford
+                                      ? 'bg-gradient-to-b from-[#FBBF49] to-[#E5861F] border-[#6E3B1B] text-[#5A2D12] shadow-[inset_0_2px_0_#FDE68A,0_3px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 cursor-pointer'
+                                      : 'bg-[#E5E3DC] border-[#BDB7AC] text-[#7D8A83] cursor-not-allowed'
+                                  }`}
+                                >
+                                  <img
+                                    src="/assets/ui/icon_coin.png"
+                                    alt=""
+                                    className="w-4 h-4 short:w-3.5 short:h-3.5 object-contain"
+                                    draggable={false}
+                                  />
+                                  <span>{tub.price}</span>
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                disabled={!canAfford}
-                                onClick={() =>
-                                  onBuyBathItem(item.id as Exclude<BathItemId, 'basic_soap'>, false)
-                                }
-                                className={`w-full py-1.5 short:py-1 px-3 min-h-[38px] short:min-h-[32px] rounded-full border-2 font-display font-black text-xs sm:text-sm short:text-xs tabular-nums transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap ${
-                                  canAfford
-                                    ? 'bg-gradient-to-b from-[#FBBF49] to-[#E5861F] border-[#6E3B1B] text-[#5A2D12] shadow-[inset_0_2px_0_#FDE68A,0_3px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 cursor-pointer'
-                                    : 'bg-[#E5E3DC] border-[#BDB7AC] text-[#7D8A83] cursor-not-allowed'
-                                }`}
-                              >
-                                <img
-                                  src="/assets/ui/icon_coin.png"
-                                  alt=""
-                                  className="w-4 h-4 short:w-3.5 short:h-3.5 object-contain"
-                                  draggable={false}
-                                />
-                                <span>Beli · {item.price}</span>
-                              </button>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {(bathFilter === 'all' || bathFilter === 'consumable') && (
+                    <div className="space-y-2 short:space-y-1.5">
+                      {bathFilter === 'all' && (
+                        <p className="font-display font-extrabold text-xs short:text-[11px] text-[#5A2D12] pt-1 border-t-2 border-[#E5D1AD]/70">
+                          Sabun &amp; Perawatan Mandi
+                        </p>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 short:gap-2">
+                        {BATH_ITEMS.map((item) => {
+                          const stock = item.isFree
+                            ? 0
+                            : hud.inventory[item.id as keyof ConsumableInventory] ?? 0;
+                          const canAfford = hud.coins >= item.price;
+                          const statLines = item.description.split(' · ');
+                          const isCleanFull = hud.cleanliness >= 100;
+                          const soapCd = item.isFree ? hud.cooldownsSec.basicSoap : 0;
+                          const freeBathBlocked =
+                            isSleeping || hud.isBathing || isCleanFull || soapCd > 0;
+                          const freeBathLabel = hud.isBathing
+                            ? 'Sedang Mandi'
+                            : isSleeping
+                            ? 'Sedang Tidur'
+                            : isCleanFull
+                            ? 'Bersih 100'
+                            : soapCd > 0
+                            ? `CD ${formatCooldownMMSS(soapCd)}`
+                            : 'Gunakan Gratis';
+                          const useBathBlocked = isSleeping || hud.isBathing || isCleanFull;
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="relative rounded-xl short:rounded-lg bg-[#FFFDF7] border-2 border-[#C79C69] shadow-[0_3px_0_#E5D1AD] p-3 short:p-2 flex flex-col items-center text-center justify-between"
+                            >
+                              <OrnateCornerFlourishes className="short:w-3 short:h-3" />
+
+                              <div className="w-full aspect-[4/3] short:aspect-[16/10] rounded-lg bg-[#E6F4FE] border border-[#93C5FD] flex items-center justify-center p-2 short:p-1 mb-2 short:mb-1">
+                                <BathItemIcon
+                                  variant={item.id}
+                                  className="w-16 h-16 short:w-11 short:h-11"
+                                />
+                              </div>
+
+                              <p className="font-display font-extrabold text-sm short:text-xs text-[#5A2D12] leading-tight mb-1.5">
+                                {item.shortName}
+                              </p>
+
+                              <div className="w-full space-y-0.5 mb-2.5 short:mb-1.5">
+                                {statLines.map((line, idx) => (
+                                  <p
+                                    key={line}
+                                    className={`text-xs short:text-[10px] font-bold text-[#0369A1] leading-tight ${
+                                      idx > 0 ? 'pt-0.5 border-t border-[#E5D1AD]/80' : ''
+                                    }`}
+                                  >
+                                    {line}
+                                  </p>
+                                ))}
+                              </div>
+
+                              {item.isFree ? (
+                                <button
+                                  type="button"
+                                  disabled={freeBathBlocked}
+                                  onClick={() => {
+                                    if (freeBathBlocked) return;
+                                    onUseBathItem('basic_soap');
+                                  }}
+                                  className={`w-full py-1.5 short:py-1 px-3 min-h-[40px] short:min-h-[34px] rounded-full border-2 font-display font-black text-xs sm:text-sm short:text-xs tabular-nums transition-all whitespace-nowrap ${
+                                    freeBathBlocked
+                                      ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#7D8A83] cursor-not-allowed'
+                                      : 'bg-gradient-to-b from-[#4B9B59] to-[#2E6F3E] border-[#1E4627] text-white shadow-[inset_0_2px_0_#86EFAC,0_3px_0_#1E4627] hover:brightness-105 active:translate-y-0.5 cursor-pointer'
+                                  }`}
+                                >
+                                  {freeBathLabel}
+                                </button>
+                              ) : (
+                                <div className="w-full space-y-1.5">
+                                  {stock > 0 && (
+                                    <button
+                                      type="button"
+                                      disabled={useBathBlocked}
+                                      onClick={() => {
+                                        if (useBathBlocked) return;
+                                        onUseBathItem(item.id);
+                                      }}
+                                      className={`w-full py-1.5 short:py-1 px-3 min-h-[38px] short:min-h-[32px] rounded-full border-2 font-display font-extrabold text-xs short:text-[11px] tabular-nums transition-all whitespace-nowrap ${
+                                        useBathBlocked
+                                          ? 'bg-[#E5E3DC] border-[#BDB7AC] text-[#7D8A83] cursor-not-allowed'
+                                          : 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722] hover:bg-[#D4E6DA] cursor-pointer'
+                                      }`}
+                                    >
+                                      {hud.isBathing
+                                        ? 'Sedang Mandi'
+                                        : isSleeping
+                                        ? 'Sedang Tidur'
+                                        : isCleanFull
+                                        ? `Bersih 100 (${stock})`
+                                        : `Pakai (${stock})`}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    disabled={!canAfford}
+                                    onClick={() =>
+                                      onBuyBathItem(item.id as Exclude<BathItemId, 'basic_soap'>, false)
+                                    }
+                                    className={`w-full py-1.5 short:py-1 px-3 min-h-[38px] short:min-h-[32px] rounded-full border-2 font-display font-black text-xs sm:text-sm short:text-xs tabular-nums transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                                      canAfford
+                                        ? 'bg-gradient-to-b from-[#FBBF49] to-[#E5861F] border-[#6E3B1B] text-[#5A2D12] shadow-[inset_0_2px_0_#FDE68A,0_3px_0_#6E3B1B] hover:brightness-105 active:translate-y-0.5 cursor-pointer'
+                                        : 'bg-[#E5E3DC] border-[#BDB7AC] text-[#7D8A83] cursor-not-allowed'
+                                    }`}
+                                  >
+                                    <img
+                                      src="/assets/ui/icon_coin.png"
+                                      alt=""
+                                      className="w-4 h-4 short:w-3.5 short:h-3.5 object-contain"
+                                      draggable={false}
+                                    />
+                                    <span>Beli · {item.price}</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

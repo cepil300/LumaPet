@@ -370,6 +370,13 @@ export type CatBedId =
   | 'kasur_donat'
   | 'tenda_kerajaan';
 
+export type CatBathtubId =
+  | 'bak_kucing'
+  | 'bak_ikan'
+  | 'bak_onsen'
+  | 'bak_kerang'
+  | 'bak_batu';
+
 export type CatToyId =
   | 'yarn_ball'
   | 'laser_pointer'
@@ -413,6 +420,7 @@ export interface BreedProfile {
   spriteSheet: string;
   babySpriteSheet: string;
   childSpriteSheet: string;
+  bathSpriteSheet: string;
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -431,6 +439,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     spriteSheet: '/assets/sprites/cat_oren.png',
     babySpriteSheet: '/assets/sprites/baby_oren.png',
     childSpriteSheet: '/assets/sprites/child_oren.png',
+    bathSpriteSheet: '/assets/sprites/bath_oren.png',
     primaryColor: '#E88B38',
     secondaryColor: '#FFF3E0',
     accentColor: '#B8591C',
@@ -447,6 +456,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     spriteSheet: '/assets/sprites/cat_mochi.png',
     babySpriteSheet: '/assets/sprites/baby_mochi.png',
     childSpriteSheet: '/assets/sprites/child_mochi.png',
+    bathSpriteSheet: '/assets/sprites/bath_mochi.png',
     primaryColor: '#F5ECE0',
     secondaryColor: '#FFFDF9',
     accentColor: '#D6C2AA',
@@ -463,6 +473,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     spriteSheet: '/assets/sprites/cat_arang.png',
     babySpriteSheet: '/assets/sprites/baby_arang.png',
     childSpriteSheet: '/assets/sprites/child_arang.png',
+    bathSpriteSheet: '/assets/sprites/bath_arang.png',
     primaryColor: '#343942',
     secondaryColor: '#F7F7F5',
     accentColor: '#1F2329',
@@ -479,6 +490,7 @@ export const CAT_BREEDS: Record<CatBreed, BreedProfile> = {
     spriteSheet: '/assets/sprites/cat_abu.png',
     babySpriteSheet: '/assets/sprites/baby_abu.png',
     childSpriteSheet: '/assets/sprites/child_abu.png',
+    bathSpriteSheet: '/assets/sprites/bath_abu.png',
     primaryColor: '#98A4B3',
     secondaryColor: '#F2F4F7',
     accentColor: '#697686',
@@ -604,6 +616,58 @@ export const CAT_BEDS: CatBedOption[] = [
     description: 'Kasur kucing oranye bawaan dengan bantal merah empuk',
     price: 0,
     imgSrc: '/assets/beds/bed_cat.png',
+  },
+];
+
+export interface CatBathtubOption {
+  id: CatBathtubId;
+  name: string;
+  description: string;
+  price: number;
+  imgSrc: string;
+  spriteRow: number;
+}
+
+export const CAT_BATHTUBS: CatBathtubOption[] = [
+  {
+    id: 'bak_kucing',
+    name: 'Bak Mandi Kucing',
+    description: 'Bak mandi kucing bawaan dengan busa melimpah & shower ikan',
+    price: 0,
+    imgSrc: '/assets/bathtubs/tub_kucing.png',
+    spriteRow: 0,
+  },
+  {
+    id: 'bak_ikan',
+    name: 'Bak Mandi Ikan',
+    description: 'Bak ikan biru ceria lengkap dengan ikan hias & keran air',
+    price: 20,
+    imgSrc: '/assets/bathtubs/tub_ikan.png',
+    spriteRow: 1,
+  },
+  {
+    id: 'bak_onsen',
+    name: 'Bak Kayu Onsen',
+    description: 'Tong pemandian air hangat gaya Jepang dengan gayung kayu',
+    price: 26,
+    imgSrc: '/assets/bathtubs/tub_onsen.png',
+    spriteRow: 2,
+  },
+  {
+    id: 'bak_kerang',
+    name: 'Bak Kerang',
+    description: 'Bak kerang mutiara merah muda dengan shower laut & busa lembut',
+    price: 32,
+    imgSrc: '/assets/bathtubs/tub_kerang.png',
+    spriteRow: 3,
+  },
+  {
+    id: 'bak_batu',
+    name: 'Bak Batu Alam',
+    description: 'Kolam batu alami dengan pancuran bambu dan dedaunan segar',
+    price: 40,
+    imgSrc: '/assets/bathtubs/tub_batu.png',
+    spriteRow: 4,
   },
 ];
 
@@ -768,6 +832,9 @@ export interface CatHudSnapshot {
   unlockedBackgrounds: RoomBackgroundId[];
   activeBed: CatBedId;
   unlockedBeds: CatBedId[];
+  activeBathtub: CatBathtubId;
+  unlockedBathtubs: CatBathtubId[];
+  isBathing: boolean;
   activeToy: CatToyId;
   unlockedToys: CatToyId[];
   equippedHat: CatHatId;
@@ -853,6 +920,8 @@ export interface SaveData {
   unlockedBackgrounds?: RoomBackgroundId[];
   activeBed?: CatBedId;
   unlockedBeds?: CatBedId[];
+  activeBathtub?: CatBathtubId;
+  unlockedBathtubs?: CatBathtubId[];
   activeToy?: CatToyId;
   unlockedToys?: CatToyId[];
   equippedHat?: CatHatId;
@@ -883,6 +952,8 @@ export interface SaveData {
   };
   bedNx?: number;
   bedNy?: number;
+  tubNx?: number;
+  tubNy?: number;
   lastFreeFeedAt?: number;
   lowCleanlinessStrikes?: number;
   wasUnder25Clean?: boolean;

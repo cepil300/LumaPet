@@ -174,8 +174,9 @@ export const GameHud: React.FC<GameHudProps> = ({
   }, [shopOpen]);
 
   const isSleeping = hud.behavior === 'SLEEPING' || hud.sleepMode !== 'none';
-  const isBathLocked = isSleeping;
-  const isPlayDisabled = isSleeping || hud.isSick || hud.energy < 20 || hud.hunger <= 2;
+  const isBathLocked = isSleeping || hud.isBathing;
+  const isPlayDisabled =
+    isSleeping || hud.isBathing || hud.isSick || hud.energy < 20 || hud.hunger <= 2;
   const isMedicineDisabled = !hud.isSick || hud.isRecovering;
   const activeToyMeta = CAT_TOYS.find((t) => t.id === hud.activeToy) ?? CAT_TOYS[0];
   const showHealthBar = hud.isSick || hud.isRecovering || hud.health < 100;
@@ -791,7 +792,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                           : 'bg-[#EFE2C8] border-[#7A4928]/60 text-[#5A2D12] hover:bg-[#FCE8C3] cursor-pointer'
                       }`}
                     >
-                      {isBathLocked
+                      {hud.isBathing
+                        ? 'Mandi...'
+                        : isSleeping
                         ? 'Tidur'
                         : hud.cleanliness >= 100
                         ? 'Bersih 100'
@@ -852,7 +855,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                           : 'bg-gradient-to-b from-[#4B9B59] to-[#2E6F3E] border-[#1E4627] text-white cursor-pointer hover:brightness-105'
                       }`}
                     >
-                      {isBathLocked
+                      {hud.isBathing
+                        ? 'Mandi...'
+                        : isSleeping
                         ? 'Tidur'
                         : isCleanFull
                         ? 'Bersih 100'
@@ -876,7 +881,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                           : 'bg-[#E9F2EC] border-[#2D6A4F] text-[#1C2722] cursor-pointer hover:bg-[#D4E6DA]'
                       }`}
                     >
-                      {isBathLocked
+                      {hud.isBathing
+                        ? 'Mandi...'
+                        : isSleeping
                         ? 'Tidur'
                         : isCleanFull
                         ? `Bersih 100 (${stock})`
@@ -1451,12 +1458,16 @@ export const GameHud: React.FC<GameHudProps> = ({
               toggleMenu('bath');
             }}
             aria-label={
-              isBathLocked
+              hud.isBathing
+                ? 'Kucing sedang mandi di bak'
+                : isSleeping
                 ? 'Mandi dikunci saat kucing sedang tidur'
                 : 'Menu Mandi & Kebersihan'
             }
             title={
-              isBathLocked
+              hud.isBathing
+                ? 'Kucing sedang mandi di bak!'
+                : isSleeping
                 ? 'Mandi dikunci saat kucing sedang tidur'
                 : 'Mandi (Sabun Gratis / Shampo / Spa)'
             }

@@ -19,6 +19,7 @@ import { CatStageCanvas, CatStageHandle } from './game/CatStageCanvas';
 import {
   BathItemId,
   CatAccessoryId,
+  CatBathtubId,
   CatBedId,
   CatBreed,
   CatHudSnapshot,
@@ -44,6 +45,11 @@ import {
   getCareNotificationPermission,
   requestCareNotificationPermission,
 } from './utils/catCareSystem';
+import {
+  isFullscreenActive,
+  isTouchOrAndroid,
+  requestImmersiveFullscreen,
+} from './utils/fullscreen';
 
 const INITIAL_HUD: CatHudSnapshot = {
   name: 'Oren',
@@ -84,6 +90,9 @@ const INITIAL_HUD: CatHudSnapshot = {
   unlockedBackgrounds: ['classic_home'],
   activeBed: 'kasur_kucing',
   unlockedBeds: ['kasur_kucing'],
+  activeBathtub: 'bak_kucing',
+  unlockedBathtubs: ['bak_kucing'],
+  isBathing: false,
   activeToy: 'yarn_ball',
   unlockedToys: ['yarn_ball'],
   equippedHat: 'none',
@@ -236,6 +245,9 @@ export default function App() {
 
   const handleStartNew = useCallback((name: string, breed: CatBreed) => {
     soundEngine.unlock();
+    if (isTouchOrAndroid()) {
+      void requestImmersiveFullscreen();
+    }
     if (getCareNotificationPermission() === 'default') {
       void requestCareNotificationPermission();
     }
@@ -249,6 +261,9 @@ export default function App() {
   const handleContinueSave = useCallback(() => {
     if (!existingSave) return;
     soundEngine.unlock();
+    if (isTouchOrAndroid()) {
+      void requestImmersiveFullscreen();
+    }
     if (getCareNotificationPermission() === 'default') {
       void requestCareNotificationPermission();
     }
@@ -382,6 +397,15 @@ export default function App() {
     [persistProgress]
   );
 
+  const handleSelectBathtub = useCallback(
+    (tubId: CatBathtubId) => {
+      if (stageRef.current?.buyOrEquipBathtub(tubId)) {
+        persistProgress();
+      }
+    },
+    [persistProgress]
+  );
+
   const handleSelectToy = useCallback(
     (toyId: CatToyId) => {
       if (stageRef.current?.buyOrEquipToy(toyId)) {
@@ -508,11 +532,18 @@ export default function App() {
       setIsTouchPortrait(checkTouchPortrait());
     };
     tryLockLandscape();
+    if (isTouchOrAndroid()) {
+      void requestImmersiveFullscreen();
+    }
     window.addEventListener('resize', tryLockLandscape);
     window.addEventListener('orientationchange', tryLockLandscape);
     const handleFirstGesture = () => {
       soundEngine.unlock();
-      tryLockLandscape();
+      if (isTouchOrAndroid() && !isFullscreenActive()) {
+        void requestImmersiveFullscreen();
+      } else {
+        tryLockLandscape();
+      }
     };
     window.addEventListener('pointerdown', handleFirstGesture, { passive: true });
     window.addEventListener('keydown', handleFirstGesture, { passive: true });
@@ -692,6 +723,7 @@ export default function App() {
             onBuyBathItem={handleBuyBathItem}
             onSelectBackground={handleSelectBackground}
             onSelectBed={handleSelectBed}
+            onSelectBathtub={handleSelectBathtub}
             onSelectToy={handleSelectToy}
             onSelectAccessory={handleSelectAccessory}
             onUnequipAllAccessories={handleUnequipAllAccessories}
@@ -744,9 +776,9 @@ export default function App() {
       {appClosed && (
         <div className="fixed inset-0 z-[110] bg-[#16201C] text-[#FFFDF7] flex flex-col items-center justify-center p-6 text-center gap-4">
           <img
-            src="/assets/ui/lumapet_logo.png"
+            src="/assets/aistudio/image_e0ece965.png"
             alt="LumaPet"
-            className="h-16 w-auto object-contain opacity-90"
+            className="h-24 w-24 rounded-[19.5%] object-contain opacity-95"
             draggable={false}
           />
           <div>

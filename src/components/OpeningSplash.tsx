@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { isTouchOrAndroid, requestImmersiveFullscreen } from '../utils/fullscreen';
 
 interface OpeningSplashProps {
   onFinish: () => void;
@@ -11,6 +12,9 @@ export const OpeningSplash: React.FC<OpeningSplashProps> = ({ onFinish }) => {
   const finishedRef = useRef(false);
 
   const triggerExit = () => {
+    if (isTouchOrAndroid()) {
+      void requestImmersiveFullscreen();
+    }
     setPhase((prev) => (prev === 'exit' ? prev : 'exit'));
   };
 
@@ -59,9 +63,9 @@ export const OpeningSplash: React.FC<OpeningSplashProps> = ({ onFinish }) => {
       }`}
     >
       <img
-        src="/assets/aistudio/Gemini_Generated_Image_jwjhunjwjhunjwjh_b7645b81.jpg"
+        src="/assets/aistudio/image_e0ece965.png"
         alt="LumaPet"
-        className={`w-full h-full max-w-[960px] max-h-[88dvh] object-contain px-6 transition-transform duration-1000 ease-out ${
+        className={`w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 max-h-[72dvh] object-contain transition-transform duration-1000 ease-out ${
           phase === 'enter' ? 'scale-95' : 'scale-100'
         }`}
         draggable={false}
